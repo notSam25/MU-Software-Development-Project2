@@ -13,8 +13,8 @@ A Dockerized environment for MU CMP_SC-4320 'Project 2'. This repository provide
 
 1. Clone this repository:
    ```sh
-   git clone https://github.com/notSam25/CS3380-Docker.git
-   cd CS3380-Docker
+   git clone https://github.com/notSam25/MU-Software-Development-Project2
+   cd [Repo Dir]
    ```
 2. Modify `.env` for required environment variables.
 3. Build and start all services:
