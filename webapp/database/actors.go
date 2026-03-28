@@ -23,7 +23,9 @@ type RegulatedEntitySite struct {
 
 type EnvironmentalOfficer struct {
 	gorm.Model
-	Name string
+	Name     string `json:"name"`
+	Email    string `gorm:"uniqueIndex;not null" json:"email"`
+	Password string `json:"password"`
 }
 
 type OPS struct {
