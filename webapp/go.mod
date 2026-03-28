@@ -1,4 +1,4 @@
-module cs3380
+module project
 
 go 1.25.0
 
