@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"project/api"
 	"project/database"
+	"project/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +16,10 @@ func main() {
 
 	if err := database.ConnectDatabase(); err != nil {
 		fmt.Println("Failed to connect to database:", err)
+		return
+	}
+	if err := database.SeedDefaultEntries(); err != nil {
+		fmt.Println("Failed to seed database:", err)
 		return
 	}
 	fmt.Println("Connected to database successfully!")
@@ -28,6 +33,14 @@ func main() {
 		})
 
 		api_group.POST("/register", api.RegisterRegulatedEntity)
+		api_group.POST("/login", api.Login)
+
+		protected := api_group.Group("")
+		protected.Use(middleware.AuthRequired())
+		{
+			protected.GET("/whoami", api.WhoAmI)
+			protected.POST("/request-permit", api.RequestPermit)
+		}
 	}
 
 	// Serve our endpoints on 0.0.0.0:8080. Note that these routes are under the same network as Docker.
