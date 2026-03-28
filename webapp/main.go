@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"project/api"
 	"project/database"
+	"project/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +29,13 @@ func main() {
 		})
 
 		api_group.POST("/register", api.RegisterRegulatedEntity)
+		api_group.POST("/login", api.Login)
+
+		protected := api_group.Group("")
+		protected.Use(middleware.AuthRequired())
+		{
+			protected.GET("/whoami", api.WhoAmI)
+		}
 	}
 
 	// Serve our endpoints on 0.0.0.0:8080. Note that these routes are under the same network as Docker.
