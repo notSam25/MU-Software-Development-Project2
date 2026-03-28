@@ -18,6 +18,10 @@ func main() {
 		fmt.Println("Failed to connect to database:", err)
 		return
 	}
+	if err := database.SeedDefaultEntries(); err != nil {
+		fmt.Println("Failed to seed database:", err)
+		return
+	}
 	fmt.Println("Connected to database successfully!")
 
 	router := gin.Default()
@@ -35,6 +39,7 @@ func main() {
 		protected.Use(middleware.AuthRequired())
 		{
 			protected.GET("/whoami", api.WhoAmI)
+			protected.POST("/request-permit", api.RequestPermit)
 		}
 	}
 

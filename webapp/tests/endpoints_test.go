@@ -31,8 +31,8 @@ func setupTestDatabase(t *testing.T) {
 		&database.RegulatedEntitySite{},
 		&database.EnvironmentalOfficer{},
 		&database.OPS{},
-		&database.PermitRequest{},
 		&database.EnvironmentalPermits{},
+		&database.PermitRequest{},
 		&database.PermitRequestDecision{},
 		&database.Payment{},
 		&database.Permit{},
@@ -60,6 +60,7 @@ func setupRouter() *gin.Engine {
 		protected := apiGroup.Group("")
 		protected.Use(middleware.AuthRequired())
 		protected.GET("/whoami", api.WhoAmI)
+		protected.POST("/request-permit", api.RequestPermit)
 	}
 
 	return router
@@ -254,5 +255,141 @@ func TestProtectedWhoAmIForEnvironmentalOfficer(t *testing.T) {
 
 	if body["account_type"] != middleware.AccountTypeEnvironmentalOfficer {
 		t.Fatalf("expected account_type=%s, got %v", middleware.AccountTypeEnvironmentalOfficer, body["account_type"])
+	}
+}
+
+func TestRequestPermitForRegulatedEntitySuccess(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{
+		ContactPersonName:   "Jane Doe",
+		Password:            "password-123",
+		Email:               "jane@example.com",
+		OrganizationName:    "Example Org",
+		OrganizationAddress: "123 Main St",
+	}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+
+	envPermit := database.EnvironmentalPermits{
+		PermitName:  "Air Quality Permit",
+		PermitFee:   150.25,
+		Description: "Template permit",
+	}
+	if err := database.DB.Create(&envPermit).Error; err != nil {
+		t.Fatalf("failed to seed environmental permit template: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	body := map[string]any{
+		"request_number":          "REQ-001",
+		"activity_description":    "Routine maintenance",
+		"activity_start_date":     "2026-03-28T20:00:00Z",
+		"activity_duration":       3600000000000,
+		"environmental_permit_id": envPermit.ID,
+	}
+	headers := map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)}
+
+	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", body, headers)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var permitRequest database.PermitRequest
+	if err := database.DB.Where("request_number = ?", "REQ-001").First(&permitRequest).Error; err != nil {
+		t.Fatalf("failed to fetch created permit request: %v", err)
+	}
+
+	if permitRequest.RegulatedEntityID != re.ID {
+		t.Fatalf("expected regulated_entity_id=%d, got %d", re.ID, permitRequest.RegulatedEntityID)
+	}
+	if permitRequest.EnvironmentalPermitID != envPermit.ID {
+		t.Fatalf("expected environmental_permit_id=%d, got %d", envPermit.ID, permitRequest.EnvironmentalPermitID)
+	}
+	if permitRequest.PermitFee != envPermit.PermitFee {
+		t.Fatalf("expected permit_fee=%v, got %v", envPermit.PermitFee, permitRequest.PermitFee)
+	}
+}
+
+func TestRequestPermitRejectsInvalidEnvironmentalPermitReference(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{
+		ContactPersonName:   "Jane Doe",
+		Password:            "password-123",
+		Email:               "jane@example.com",
+		OrganizationName:    "Example Org",
+		OrganizationAddress: "123 Main St",
+	}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	body := map[string]any{
+		"request_number":          "REQ-002",
+		"activity_description":    "Routine maintenance",
+		"activity_start_date":     "2026-03-28T20:00:00Z",
+		"activity_duration":       3600000000000,
+		"environmental_permit_id": 999999,
+	}
+	headers := map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)}
+
+	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", body, headers)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequestPermitForbiddenForEnvironmentalOfficer(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	eo := database.EnvironmentalOfficer{
+		Name:     "Officer Smith",
+		Email:    "eo@example.com",
+		Password: "password-123",
+	}
+	if err := database.DB.Create(&eo).Error; err != nil {
+		t.Fatalf("failed to seed environmental officer: %v", err)
+	}
+
+	envPermit := database.EnvironmentalPermits{
+		PermitName:  "Air Quality Permit",
+		PermitFee:   150.25,
+		Description: "Template permit",
+	}
+	if err := database.DB.Create(&envPermit).Error; err != nil {
+		t.Fatalf("failed to seed environmental permit template: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	body := map[string]any{
+		"request_number":          "REQ-003",
+		"activity_description":    "Routine maintenance",
+		"activity_start_date":     "2026-03-28T20:00:00Z",
+		"activity_duration":       3600000000000,
+		"environmental_permit_id": envPermit.ID,
+	}
+	headers := map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)}
+
+	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", body, headers)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }

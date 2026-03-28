@@ -8,17 +8,18 @@ import (
 
 type PermitRequest struct {
 	gorm.Model
-	RegulatedEntityID    uint
-	RegulatedEntity      *RegulatedEntities `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	RequestNumber        string             `gorm:"uniqueIndex;not null"`
-	ActivityDescription  string
-	ActivityStartDate    time.Time
-	ActivityDuration     time.Duration
-	PermitFee            float64
-	EnvironmentalPermits *EnvironmentalPermits  `gorm:"foreignKey:PermitRequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	Decision             *PermitRequestDecision `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	Payment              *Payment               `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	Permit               *Permit                `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	RegulatedEntityID     uint
+	RegulatedEntity       *RegulatedEntities    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	EnvironmentalPermitID uint                  `gorm:"not null;index"`
+	EnvironmentalPermit   *EnvironmentalPermits `gorm:"foreignKey:EnvironmentalPermitID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
+	RequestNumber         string                `gorm:"uniqueIndex;not null"`
+	ActivityDescription   string
+	ActivityStartDate     time.Time
+	ActivityDuration      time.Duration
+	PermitFee             float64
+	Decision              *PermitRequestDecision `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Payment               *Payment               `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Permit                *Permit                `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }
 
 type PermitRequestDecision struct {
@@ -31,11 +32,9 @@ type PermitRequestDecision struct {
 
 type EnvironmentalPermits struct {
 	gorm.Model
-	PermitRequestID uint           `gorm:"not null;uniqueIndex"`
-	Request         *PermitRequest `gorm:"foreignKey:PermitRequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	PermitName      string
-	PermitFee       float64
-	Description     string
+	PermitName  string `gorm:"not null"`
+	PermitFee   float64
+	Description string
 }
 
 type Payment struct {
