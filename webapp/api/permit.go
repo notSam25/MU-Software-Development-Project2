@@ -10,20 +10,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type requestPermitBody struct {
-	RequestNumber         string        `json:"request_number" binding:"required"`
-	ActivityDescription   string        `json:"activity_description" binding:"required"`
-	ActivityStartDate     time.Time     `json:"activity_start_date" binding:"required"`
-	ActivityDuration      time.Duration `json:"activity_duration" binding:"required"`
-	EnvironmentalPermitID uint          `json:"environmental_permit_id" binding:"required"`
-}
-
 func RequestPermit(ctx *gin.Context) {
 	reAny, _ := ctx.Get(middleware.ContextRegulatedEntityKey)
 	re, ok := reAny.(*database.RegulatedEntities)
 	if !ok || re == nil {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only regulated entities can request permits"})
 		return
+	}
+
+	type requestPermitBody struct {
+		ActivityDescription   string        `json:"activity_description" binding:"required"`
+		ActivityStartDate     time.Time     `json:"activity_start_date" binding:"required"`
+		ActivityDuration      time.Duration `json:"activity_duration" binding:"required"`
+		EnvironmentalPermitID uint          `json:"environmental_permit_id" binding:"required"`
 	}
 
 	var payload requestPermitBody
@@ -41,7 +40,6 @@ func RequestPermit(ctx *gin.Context) {
 	permitRequest := database.PermitRequest{
 		RegulatedEntityID:     re.ID,
 		EnvironmentalPermitID: envPermit.ID,
-		RequestNumber:         payload.RequestNumber,
 		ActivityDescription:   payload.ActivityDescription,
 		ActivityStartDate:     payload.ActivityStartDate,
 		ActivityDuration:      payload.ActivityDuration,

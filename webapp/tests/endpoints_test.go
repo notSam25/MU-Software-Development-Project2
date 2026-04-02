@@ -288,7 +288,6 @@ func TestRequestPermitForRegulatedEntitySuccess(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"request_number":          "REQ-001",
 		"activity_description":    "Routine maintenance",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
@@ -301,8 +300,13 @@ func TestRequestPermitForRegulatedEntitySuccess(t *testing.T) {
 		t.Fatalf("expected status 201, got %d body=%s", resp.Code, resp.Body.String())
 	}
 
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+
 	var permitRequest database.PermitRequest
-	if err := database.DB.Where("request_number = ?", "REQ-001").First(&permitRequest).Error; err != nil {
+	if err := database.DB.Where("id = ?", data["id"]).First(&permitRequest).Error; err != nil {
 		t.Fatalf("failed to fetch created permit request: %v", err)
 	}
 
@@ -338,7 +342,6 @@ func TestRequestPermitRejectsInvalidEnvironmentalPermitReference(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"request_number":          "REQ-002",
 		"activity_description":    "Routine maintenance",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
@@ -380,7 +383,6 @@ func TestRequestPermitForbiddenForEnvironmentalOfficer(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"request_number":          "REQ-003",
 		"activity_description":    "Routine maintenance",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,

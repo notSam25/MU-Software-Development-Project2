@@ -12,7 +12,6 @@ type PermitRequest struct {
 	RegulatedEntity       *RegulatedEntities    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	EnvironmentalPermitID uint                  `gorm:"not null;index"`
 	EnvironmentalPermit   *EnvironmentalPermits `gorm:"foreignKey:EnvironmentalPermitID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
-	RequestNumber         string                `gorm:"uniqueIndex;not null"`
 	ActivityDescription   string
 	ActivityStartDate     time.Time
 	ActivityDuration      time.Duration
