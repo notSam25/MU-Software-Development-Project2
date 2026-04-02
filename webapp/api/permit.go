@@ -56,3 +56,46 @@ func RequestPermit(ctx *gin.Context) {
 		"id":      permitRequest.ID,
 	})
 }
+
+func ReviewPermit(ctx *gin.Context) {
+	eoAny, _ := ctx.Get(middleware.ContextEnvironmentalOfficerKey)
+	re, ok := eoAny.(*database.RegulatedEntities)
+	if !ok || re == nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only environmental officers can review permits"})
+		return
+	}
+
+	type reviewPermitBody struct {
+		PermitRequestID uint   `json:"permit_request_id" binding:"required"`
+		Decision        string `json:"decision" binding:"required"`
+		Description     string `json:"description" binding:"required"`
+	}
+
+	var payload reviewPermitBody
+	if err := ctx.ShouldBindJSON(&payload); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid body format", "details": err.Error()})
+		return
+	}
+
+	var permitRequest database.PermitRequest
+	if err := database.DB.First(&permitRequest, payload.PermitRequestID).Error; err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request reference"})
+		return
+	}
+
+	permitRequestDecision := database.PermitRequestDecision{
+		PermitRequestID: payload.PermitRequestID,
+		Decision:        payload.Decision,
+		Description:     payload.Description,
+	}
+
+	if err := database.DB.Create(&permitRequestDecision).Error; err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to create permit request decision", "details": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"message": "Permit request decision applied successfully",
+		"id":      permitRequestDecision.ID,
+	})
+}

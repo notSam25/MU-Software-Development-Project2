@@ -25,7 +25,7 @@ type PermitRequestDecision struct {
 	gorm.Model
 	PermitRequestID uint           `gorm:"not null;uniqueIndex"`
 	Request         *PermitRequest `gorm:"foreignKey:PermitRequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	FinalDecision   string
+	Decision        string
 	Description     string
 }
 

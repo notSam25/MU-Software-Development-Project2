@@ -40,6 +40,7 @@ func main() {
 		{
 			protected.GET("/whoami", api.WhoAmI)
 			protected.POST("/request-permit", api.RequestPermit)
+			protected.POST("/review-permit", api.ReviewPermit)
 		}
 	}
 
