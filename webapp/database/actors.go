@@ -30,5 +30,7 @@ type EnvironmentalOfficer struct {
 
 type OPS struct {
 	gorm.Model
-	Name string
+	Name     string
+	Email    string `gorm:"uniqueIndex;not null"`
+	Password string
 }

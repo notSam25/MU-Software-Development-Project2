@@ -10,7 +10,7 @@ import (
 )
 
 type loginRequest struct {
-	AccountType string `json:"account_type" binding:"required,oneof=regulated_entity environmental_officer"`
+	AccountType string `json:"account_type" binding:"required,oneof=regulated_entity environmental_officer ops"`
 	Email       string `json:"email" binding:"required,email"`
 	Password    string `json:"password" binding:"required"`
 }
@@ -51,6 +51,20 @@ func Login(ctx *gin.Context) {
 		}
 
 		ctx.JSON(http.StatusOK, gin.H{"token": token})
+	case middleware.AccountTypeOPS:
+		var ops database.OPS
+		if err := database.DB.Where("email = ?", payload.Email).First(&ops).Error; err != nil || ops.Password != payload.Password {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+			return
+		}
+
+		token, err := middleware.GenerateJWT(ops.ID, middleware.AccountTypeOPS)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{"token": token})
 	default:
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported account type"})
 	}
@@ -74,6 +88,16 @@ func WhoAmI(ctx *gin.Context) {
 			"account_type": middleware.AccountTypeEnvironmentalOfficer,
 			"account_id":   eo.ID,
 			"email":        eo.Email,
+		})
+		return
+	}
+
+	opsAny, _ := ctx.Get(middleware.ContextOPSKey)
+	if ops, ok := opsAny.(*database.OPS); ok && ops != nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"account_type": middleware.AccountTypeOPS,
+			"account_id":   ops.ID,
+			"email":        ops.Email,
 		})
 		return
 	}

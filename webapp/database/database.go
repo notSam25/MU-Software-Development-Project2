@@ -28,7 +28,7 @@ func resolveTables() error {
 		return err
 	}
 
-	if err := DB.AutoMigrate(&PermitRequest{}, &PermitRequestDecision{}, &Payment{}, &Permit{}); err != nil {
+	if err := DB.AutoMigrate(&PermitRequest{}, &PermitRequestStatus{}, &PermitRequestDecision{}, &Payment{}, &Permit{}); err != nil {
 		return err
 	}
 
@@ -75,6 +75,19 @@ func SeedDefaultEntries() error {
 		EnvironmentalOfficer{Email: defaultEO.Email},
 	).Error; err != nil {
 		return fmt.Errorf("failed to create default environmental officer: %w", err)
+	}
+
+	defaultOPS := &OPS{
+		Name:     "Default OPS",
+		Email:    "ops@example.com",
+		Password: "default-password-123",
+	}
+
+	if err := DB.FirstOrCreate(
+		defaultOPS,
+		OPS{Email: defaultOPS.Email},
+	).Error; err != nil {
+		return fmt.Errorf("failed to create default OPS account: %w", err)
 	}
 
 	// Create default EnvironmentalPermits if they don't exist

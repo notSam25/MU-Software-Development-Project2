@@ -6,6 +6,15 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	PermitRequestStatusPendingPayment   = "Pending Payment"
+	PermitRequestStatusReviewingPayment = "Reviewing Payment"
+	PermitRequestStatusSubmitted        = "Submitted"
+	PermitRequestStatusRejected         = "Rejected"
+	PermitRequestStatusBeingReviewed    = "Being Reviewed"
+	PermitRequestStatusAccepted         = "Accepted"
+)
+
 type PermitRequest struct {
 	gorm.Model
 	RegulatedEntityID     uint
@@ -16,9 +25,18 @@ type PermitRequest struct {
 	ActivityStartDate     time.Time
 	ActivityDuration      time.Duration
 	PermitFee             float64
-	Decision              *PermitRequestDecision `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Statuses              []PermitRequestStatus  `gorm:"foreignKey:PermitRequestID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Decision              *PermitRequestDecision `gorm:"foreignKey:PermitRequestID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	Payment               *Payment               `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	Permit                *Permit                `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+}
+
+type PermitRequestStatus struct {
+	gorm.Model
+	PermitRequestID uint           `gorm:"not null;index"`
+	Request         *PermitRequest `gorm:"foreignKey:PermitRequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Status          string         `gorm:"not null;index"`
+	Description     string
 }
 
 type PermitRequestDecision struct {

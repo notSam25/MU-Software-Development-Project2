@@ -40,6 +40,11 @@ func main() {
 		{
 			protected.GET("/whoami", api.WhoAmI)
 			protected.POST("/request-permit", api.RequestPermit)
+			protected.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)
+			protected.GET("/ops/permit-requests/reviewing-payment", api.ListReviewingPaymentRequests)
+			protected.POST("/ops/permit-request/:request_id/review_payment", api.ReviewPermitPayment)
+			protected.GET("/eo/permit-requests/submitted-payment", api.ListPaymentSubmittedRequests)
+			protected.POST("/eo/permit-request/:request_id/start-review", api.ReviewPermitPaymentSubmitted)
 			protected.POST("/review-permit", api.ReviewPermit)
 		}
 	}

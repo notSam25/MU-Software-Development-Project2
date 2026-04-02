@@ -15,8 +15,10 @@ import (
 const (
 	ContextRegulatedEntityKey       = "regulated_entity"
 	ContextEnvironmentalOfficerKey  = "environmental_officer"
+	ContextOPSKey                   = "ops"
 	AccountTypeRegulatedEntity      = "regulated_entity"
 	AccountTypeEnvironmentalOfficer = "environmental_officer"
+	AccountTypeOPS                  = "ops"
 )
 
 type Claims struct {
@@ -108,6 +110,17 @@ func AuthRequired() gin.HandlerFunc {
 			}
 			ctx.Set(ContextEnvironmentalOfficerKey, &eo)
 			ctx.Set(ContextRegulatedEntityKey, (*database.RegulatedEntities)(nil))
+			ctx.Set(ContextOPSKey, (*database.OPS)(nil))
+		case AccountTypeOPS:
+			var ops database.OPS
+			if err := database.DB.First(&ops, claims.AccountID).Error; err != nil {
+				ctx.JSON(401, gin.H{"error": "Unauthorized", "details": "account not found"})
+				ctx.Abort()
+				return
+			}
+			ctx.Set(ContextOPSKey, &ops)
+			ctx.Set(ContextRegulatedEntityKey, (*database.RegulatedEntities)(nil))
+			ctx.Set(ContextEnvironmentalOfficerKey, (*database.EnvironmentalOfficer)(nil))
 		default:
 			ctx.JSON(401, gin.H{"error": "Unauthorized", "details": "unknown account type"})
 			ctx.Abort()
