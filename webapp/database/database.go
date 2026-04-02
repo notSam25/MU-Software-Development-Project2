@@ -24,11 +24,11 @@ func resolveTables() error {
 		return err
 	}
 
-	if err := DB.AutoMigrate(&PermitRequest{}); err != nil {
+	if err := DB.AutoMigrate(&EnvironmentalPermits{}); err != nil {
 		return err
 	}
 
-	if err := DB.AutoMigrate(&EnvironmentalPermits{}, &PermitRequestDecision{}, &Payment{}, &Permit{}); err != nil {
+	if err := DB.AutoMigrate(&PermitRequest{}, &PermitRequestStatus{}, &PermitRequestDecision{}, &Payment{}, &Permit{}); err != nil {
 		return err
 	}
 
@@ -59,5 +59,74 @@ func ConnectDatabase() error {
 	if err := resolveTables(); err != nil {
 		return err
 	}
+	return nil
+}
+
+func SeedDefaultEntries() error {
+	// Create default EnvironmentalOfficer if it doesn't exist
+	defaultEO := &EnvironmentalOfficer{
+		Name:     "Default Officer",
+		Email:    "officer@example.com",
+		Password: "default-password-123",
+	}
+
+	if err := DB.FirstOrCreate(
+		defaultEO,
+		EnvironmentalOfficer{Email: defaultEO.Email},
+	).Error; err != nil {
+		return fmt.Errorf("failed to create default environmental officer: %w", err)
+	}
+
+	defaultOPS := &OPS{
+		Name:     "Default OPS",
+		Email:    "ops@example.com",
+		Password: "default-password-123",
+	}
+
+	if err := DB.FirstOrCreate(
+		defaultOPS,
+		OPS{Email: defaultOPS.Email},
+	).Error; err != nil {
+		return fmt.Errorf("failed to create default OPS account: %w", err)
+	}
+
+	// Create default EnvironmentalPermits if they don't exist
+	permits := []EnvironmentalPermits{
+		{
+			PermitName:  "Land Development Permit",
+			PermitFee:   500.00,
+			Description: "Permit for land development and construction activities",
+		},
+		{
+			PermitName:  "Air Quality Permit",
+			PermitFee:   300.00,
+			Description: "Permit for air emissions and air quality compliance",
+		},
+		{
+			PermitName:  "Water Discharge Permit",
+			PermitFee:   400.00,
+			Description: "Permit for water discharge and wastewater management",
+		},
+		{
+			PermitName:  "Hazardous Waste Permit",
+			PermitFee:   750.00,
+			Description: "Permit for handling and disposal of hazardous waste",
+		},
+		{
+			PermitName:  "Mining Operations Permit",
+			PermitFee:   1000.00,
+			Description: "Permit for mining and extraction operations",
+		},
+	}
+
+	for _, permit := range permits {
+		if err := DB.FirstOrCreate(
+			&permit,
+			EnvironmentalPermits{PermitName: permit.PermitName},
+		).Error; err != nil {
+			return fmt.Errorf("failed to create default permit %s: %w", permit.PermitName, err)
+		}
+	}
+
 	return nil
 }

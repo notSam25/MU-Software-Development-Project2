@@ -7,16 +7,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type registerRegulatedEntityRequest struct {
-	ContactPersonName   string `json:"contact_person_name" binding:"required"`
-	Password            string `json:"password" binding:"required"`
-	Email               string `json:"email" binding:"required,email"`
-	OrganizationName    string `json:"organization_name" binding:"required"`
-	OrganizationAddress string `json:"organization_address" binding:"required"`
-}
-
 func RegisterRegulatedEntity(ctx *gin.Context) {
-	var payload registerRegulatedEntityRequest
+	type body struct {
+		ContactPersonName   string `json:"contact_person_name" binding:"required"`
+		Password            string `json:"password" binding:"required"`
+		Email               string `json:"email" binding:"required,email"`
+		OrganizationName    string `json:"organization_name" binding:"required"`
+		OrganizationAddress string `json:"organization_address" binding:"required"`
+	}
+	var payload body
 	if err := ctx.ShouldBindJSON(&payload); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid body format", "details": err.Error()})
 		return
