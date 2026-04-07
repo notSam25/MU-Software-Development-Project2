@@ -1,8 +1,6 @@
 # MU-Software-Development-Project2
 Project2-Implementation
 
-A Dockerized environment for MU CMP_SC-4320 'Project 2'. This repository provides a quick way to run a PostgreSQL database, a Go web application, and a pgAdmin GUI for database management. It also contains all logic required in the rubric.
-
 ## Services
 
 - **PostgreSQL**: Persistent database storage using Docker volumes.
@@ -24,9 +22,19 @@ A Dockerized environment for MU CMP_SC-4320 'Project 2'. This repository provide
    ```
 
 ## Usage
-- Access the webapp at `http://localhost:<webapp-port>` (set in your `.env` file).
-- Access pgAdmin at `http://localhost:8080` (default).
+- Access the webapp at `http://localhost:8080`.
+- Access pgAdmin at `http://localhost:8083`.
 - Database data and Go module cache are persisted between runs for faster startup and reliability.
+
+## Makefile Shortcuts
+
+If you have `make` installed, you can use:
+- `make launch` to build and start all services in detached mode.
+- `make logs` to follow logs for all services.
+- `make webapp-logs` to follow webapp logs only.
+- `make ps` to view container status.
+- `make down` to stop/remove containers.
+- `make reset` to rebuild from scratch (`down -v` then `up --build -d`).
 
 ## Troubleshooting
 - If you encounter issues, try rebuilding containers:
@@ -35,6 +43,3 @@ A Dockerized environment for MU CMP_SC-4320 'Project 2'. This repository provide
   docker compose up --build -d
   ```
 - Ensure your `.env` file is correctly configured.
-
-## License
-MIT

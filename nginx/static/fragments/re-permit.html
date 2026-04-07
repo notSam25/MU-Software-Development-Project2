@@ -1,0 +1,37 @@
+<section class="grid gap-4 lg:grid-cols-2">
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Submit Permit Application</h3>
+    <p class="mt-1 text-sm text-slate-600">Provide activity details and an environmental permit template ID for backend request creation.</p>
+    <form id="permit-app-form" class="mt-3 grid gap-3">
+      <label class="text-sm text-slate-700">
+        Activity Description
+        <textarea class="field" name="activity_description" rows="3" required></textarea>
+      </label>
+      <label class="text-sm text-slate-700">
+        Activity Start Date
+        <input class="field" type="date" name="activity_start_date" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Activity Duration (hours)
+        <input class="field" type="number" name="activity_duration_hours" inputmode="decimal" min="1" step="0.5" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Environmental Permit Template
+        <select class="field" name="environmental_permit_id" required></select>
+      </label>
+      <label class="text-sm text-slate-700">
+        Environmental Permit ID (manual override)
+        <input class="field" type="number" name="environmental_permit_id_manual" inputmode="numeric" min="1" placeholder="optional" />
+      </label>
+      <button class="btn-primary" type="submit">Submit Application</button>
+    </form>
+  </article>
+
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Default Environmental Permit Templates</h3>
+    <ul id="permit-template-list" class="mt-3 grid gap-2"></ul>
+
+    <h3 class="mt-5 text-lg font-semibold text-gov-900">Tracked Requests</h3>
+    <div id="re-application-list" class="mt-3 space-y-2"></div>
+  </article>
+</section>

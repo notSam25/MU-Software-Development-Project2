@@ -1,0 +1,39 @@
+<section class="grid gap-4 lg:grid-cols-2">
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Process Fee Payment</h3>
+    <p class="mt-1 text-sm text-slate-600">Submit payment for requests in Pending Payment status.</p>
+    <form id="payment-form" class="mt-3 grid gap-3">
+      <label class="text-sm text-slate-700">
+        Permit Request
+        <select class="field" name="request_id"></select>
+      </label>
+      <label class="text-sm text-slate-700">
+        Permit Request ID (manual)
+        <input class="field" type="number" name="request_id_manual" inputmode="numeric" min="1" placeholder="optional" />
+      </label>
+      <label class="text-sm text-slate-700">
+        Payment Method
+        <select class="field" name="payment_method" required>
+          <option value="">Choose a method</option>
+          <option value="card">Card</option>
+          <option value="bank_transfer">Bank Transfer</option>
+          <option value="wire">Wire</option>
+        </select>
+      </label>
+      <label class="text-sm text-slate-700">
+        Card Holder Name
+        <input class="field" type="text" name="card_holder_name" autocomplete="cc-name" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Last 4 Card Digits
+        <input class="field" type="text" name="last_four_digits_of_card" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required />
+      </label>
+      <button class="btn-primary" type="submit">Submit Payment</button>
+    </form>
+  </article>
+
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Payment Status</h3>
+    <div id="re-payment-list" class="mt-3 space-y-2"></div>
+  </article>
+</section>
