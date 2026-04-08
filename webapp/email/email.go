@@ -15,7 +15,7 @@ func SendEmail(recipient, subject, body string) error {
 	var SMTPEmail = database.GetEnv("SMTP_EMAIL", "")
 	var SMTPPassword = database.GetEnv("SMTP_PASSWORD", "")
 
-	//Set up authentication information for the SMTP server
+	// Set up authentication information for the SMTP server
 	auth := smtp.PlainAuth("", SMTPEmail, SMTPPassword, SMTPHost)
 
 	serverAddr := net.JoinHostPort(SMTPHost, SMTPPort)
