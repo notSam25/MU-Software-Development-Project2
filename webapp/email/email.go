@@ -1,7 +1,9 @@
 package email
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
 	"project/database"
 )
@@ -11,16 +13,42 @@ func SendEmail(recipient, subject, body string) error {
 	var SMTPHost = database.GetEnv("SMTP_HOST", "smtp.gmail.com")
 	var SMTPPort = database.GetEnv("SMTP_PORT", "587")
 	var SMTPEmail = database.GetEnv("SMTP_EMAIL", "")
-	var SMTPPassword = database.GetEnv("SMTP_PASSWORD", "")
+	var SMTPPassword = database.GetEnv("SMTP_PASSWORD", database.GetEnv("SMPT_PASSWORD", ""))
 
 	//Set up authentication information for the SMTP server
 	auth := smtp.PlainAuth("", SMTPEmail, SMTPPassword, SMTPHost)
 
-	//Connect to the SMTP server
-	client, err := smtp.Dial(fmt.Sprintf("%s:%s", SMTPHost, SMTPPort))
+	serverAddr := net.JoinHostPort(SMTPHost, SMTPPort)
+	var (
+		client *smtp.Client
+		err    error
+	)
 
-	if err != nil {
-		return fmt.Errorf("failed to connect to SMTP server: %v", err)
+	// Connect with implicit TLS for port 465, otherwise use a plain connection
+	// and upgrade with STARTTLS when the server supports it.
+	if SMTPPort == "465" {
+		conn, err := tls.Dial("tcp", serverAddr, &tls.Config{ServerName: SMTPHost})
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server over TLS: %v", err)
+		}
+		client, err = smtp.NewClient(conn, SMTPHost)
+		if err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("failed to create SMTP client: %v", err)
+		}
+	} else {
+		client, err = smtp.Dial(serverAddr)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server: %v", err)
+		}
+		// Upgrade to TLS before authenticating when the server supports it.
+		// Many SMTP providers reject AUTH over an unencrypted connection.
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: SMTPHost}); err != nil {
+				_ = client.Close()
+				return fmt.Errorf("failed to start TLS with SMTP server: %v", err)
+			}
+		}
 	}
 	defer client.Quit()
 
