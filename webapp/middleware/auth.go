@@ -12,25 +12,35 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Context keys for storing authenticated user information in Gin context
 const (
 	ContextRegulatedEntityKey       = "regulated_entity"
 	ContextEnvironmentalOfficerKey  = "environmental_officer"
 	ContextOPSKey                   = "ops"
+)
+
+// Account type constants for different user roles in the system
+const (
 	AccountTypeRegulatedEntity      = "regulated_entity"
 	AccountTypeEnvironmentalOfficer = "environmental_officer"
 	AccountTypeOPS                  = "ops"
 )
 
+// Claims represents the JWT payload structure containing user authentication information
 type Claims struct {
 	AccountID   uint   `json:"account_id"`
 	AccountType string `json:"account_type"`
 	jwt.RegisteredClaims
 }
 
+// jwtSecret returns the secret key used for JWT signing and verification
+// It retrieves the secret from environment variables with a default fallback
 func jwtSecret() []byte {
 	return []byte(database.GetEnv("JWT_SECRET", "dev-secret-change-me"))
 }
 
+// GenerateJWT creates a new JWT token for the specified account
+// It includes the account ID, type, and standard JWT claims (issued at, expires at)
 func GenerateJWT(accountID uint, accountType string) (string, error) {
 	claims := Claims{
 		AccountID:   accountID,
@@ -45,6 +55,8 @@ func GenerateJWT(accountID uint, accountType string) (string, error) {
 	return token.SignedString(jwtSecret())
 }
 
+// parseAuthorizationHeader extracts the JWT token from the Authorization header
+// It expects the format "Bearer <token>" and returns the token string or an error
 func parseAuthorizationHeader(header string) (string, error) {
 	if header == "" {
 		return "", errors.New("missing authorization header")
