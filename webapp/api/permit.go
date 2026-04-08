@@ -415,3 +415,26 @@ func ListPaymentSubmittedRequests(ctx *gin.Context) {
 	// Return the list of requests
 	ctx.JSON(http.StatusOK, gin.H{"items": requests})
 }
+
+// ListEnvironmentalPermits returns the permit templates available for new applications.
+// These records are seeded on startup and exposed publicly so the frontend can populate
+// the permit selector without keeping its own hardcoded copy.
+func ListEnvironmentalPermits(ctx *gin.Context) {
+	var permits []database.EnvironmentalPermits
+	if err := database.DB.Order("id asc").Find(&permits).Error; err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list environmental permits", "details": err.Error()})
+		return
+	}
+
+	items := make([]gin.H, 0, len(permits))
+	for _, permit := range permits {
+		items = append(items, gin.H{
+			"id":          permit.ID,
+			"permit_name": permit.PermitName,
+			"permit_fee":  permit.PermitFee,
+			"description": permit.Description,
+		})
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"items": items})
+}

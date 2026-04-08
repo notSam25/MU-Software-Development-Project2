@@ -61,6 +61,7 @@ func setupRouter() *gin.Engine {
 	})
 	router.POST("/api/register", api.RegisterRegulatedEntity)
 	router.POST("/api/login", api.Login)
+	router.GET("/api/environmental-permits", api.ListEnvironmentalPermits)
 
 	authenticated := router.Group("/api")
 	authenticated.Use(middleware.AuthRequired())
@@ -130,6 +131,39 @@ func TestPingReturnsPong(t *testing.T) {
 	}
 	if body["message_text"] != "pong!" {
 		t.Fatalf("expected message_text pong!, got %v", body["message_text"])
+	}
+}
+
+func TestEnvironmentalPermitsReturnsSeededTemplates(t *testing.T) {
+	setupTestDatabase(t)
+	if err := database.SeedDefaultEntries(); err != nil {
+		t.Fatalf("failed to seed default entries: %v", err)
+	}
+	router := setupRouter()
+
+	resp := doJSONRequest(router, http.MethodGet, "/api/environmental-permits", nil, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected permit list to succeed, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode permit list response: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", body["items"])
+	}
+	if len(items) != 5 {
+		t.Fatalf("expected 5 seeded permit templates, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if first["permit_name"] != "Land Development Permit" {
+		t.Fatalf("expected first seeded permit to be Land Development Permit, got %v", first["permit_name"])
 	}
 }
 

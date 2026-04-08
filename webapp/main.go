@@ -49,6 +49,7 @@ func main() {
 
 		// Endpoint for user login, supporting regulated entity and environmental officer accounts
 		api_group.POST("/login", api.Login)
+		api_group.GET("/environmental-permits", api.ListEnvironmentalPermits)
 
 		// Create a subgroup for protected endpoints that require authentication
 		protected := api_group.Group("")
@@ -77,7 +78,7 @@ func main() {
 	// Start the HTTP server on the configured port (default 8080)
 	// The server listens on all interfaces (0.0.0.0) within the Docker network
 	// If server fails to start, log fatal error and exit
-	if err := router.Run(fmt.Sprintf("0.0.0.0:%s", database.GetEnv("HTTP_SERVER_PORT", "8080"))); err != nil {
+	if err := router.Run(fmt.Sprintf("0.0.0.0:%s", database.GetEnv("HTTP_ROUTER_PORT", "8080"))); err != nil {
 		log.Fatalf("Failed to create HTTP server: %v", err)
 	}
 }
