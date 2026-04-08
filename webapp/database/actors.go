@@ -2,10 +2,6 @@ package database
 
 import "gorm.io/gorm"
 
-package database
-
-import "gorm.io/gorm"
-
 // RegulatedEntities represents organizations that need environmental permits
 // They can register accounts, request permits, and submit payments
 type RegulatedEntities struct {

@@ -12,20 +12,6 @@ var (
 	DB *gorm.DB
 )
 
-package database
-
-import (
-	"fmt"
-	"os"
-
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-)
-
-var (
-	// DB is the global database connection instance used throughout the application
-	DB *gorm.DB
-)
 
 // GetEnv retrieves an environment variable value or returns a default if not set
 // This is a utility function for configuration management
