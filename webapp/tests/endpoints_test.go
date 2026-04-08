@@ -894,7 +894,7 @@ func TestRegisterRejectsMissingFields(t *testing.T) {
 
 	resp := doJSONRequest(router, http.MethodPost, "/api/register", map[string]any{
 		"contact_person_name": "Jane Doe",
-		"password":           "password-123",
+		"password":            "password-123",
 		"email":               "jane@example.com",
 		// organization_name and organization_address intentionally omitted
 	}, nil)
