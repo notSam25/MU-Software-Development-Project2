@@ -3,25 +3,25 @@ const STORAGE_KEY = "group9_iPERMITAPP_state_v2";
 const INITIAL_STATE = {
   auth: null,
   trackedRequests: [],
-  reProfiles: {}
+  reProfiles: {},
 };
 
 //Backend account types by ui role
 const ACCOUNT_TYPES = {
   re: "regulated_entity",
-  eo: "environmental_officer"
+  eo: "environmental_officer",
 };
 
 //Ui role lookup from backend account types
 const ACCOUNT_TYPE_TO_UI_ROLE = {
   regulated_entity: "re",
-  environmental_officer: "eo"
+  environmental_officer: "eo",
 };
 
 //Display labels for each ui role
 const ROLE_LABELS = {
   re: "Regulated Entity",
-  eo: "Environmental Officer"
+  eo: "Environmental Officer",
 };
 
 //Shared workflow statuses for tracked requests
@@ -31,17 +31,8 @@ const STATUS = {
   submitted: "Submitted",
   rejected: "Rejected",
   beingReviewed: "Being Reviewed",
-  accepted: "Accepted"
+  accepted: "Accepted",
 };
-
-//Fallback permit templates for request form
-const DEFAULT_ENVIRONMENTAL_PERMITS = [
-  { id: 1, permit_name: "Land Development Permit", permit_fee: 500.0 },
-  { id: 2, permit_name: "Air Quality Permit", permit_fee: 300.0 },
-  { id: 3, permit_name: "Water Discharge Permit", permit_fee: 400.0 },
-  { id: 4, permit_name: "Hazardous Waste Permit", permit_fee: 750.0 },
-  { id: 5, permit_name: "Mining Operations Permit", permit_fee: 1000.0 }
-];
 
 //Tab ids mapped to their initializer functions
 const TAB_INITIALIZERS = {
@@ -52,12 +43,13 @@ const TAB_INITIALIZERS = {
   "eo-account": initEoAccountTab,
   "eo-review": initEoReviewTab,
   "eo-issue": initEoIssueTab,
-  "eo-report": initEoReportTab
+  "eo-report": initEoReportTab,
 };
 
 let state = loadState();
 let activeView = "";
 let noticeTimer = null;
+let environmentalPermits = [];
 
 //Small dom and formatting helpers
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -78,7 +70,9 @@ function init() {
 }
 
 function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function isSupportedAccountType(accountType) {
@@ -96,7 +90,7 @@ function normalizeTrackedItem(item) {
     status: String(item?.status || ""),
     permitCreated: Boolean(item?.permitCreated),
     updatedAt: item?.updatedAt || "",
-    notes: Array.isArray(item?.notes) ? item.notes.slice(-10) : []
+    notes: Array.isArray(item?.notes) ? item.notes.slice(-10) : [],
   };
 }
 
@@ -104,14 +98,21 @@ function normalizeTrackedItem(item) {
 function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    const tracked = Array.isArray(parsed?.trackedRequests) ? parsed.trackedRequests.map(normalizeTrackedItem).filter((item) => item.id > 0) : [];
+    const tracked = Array.isArray(parsed?.trackedRequests)
+      ? parsed.trackedRequests
+          .map(normalizeTrackedItem)
+          .filter((item) => item.id > 0)
+      : [];
 
     return {
       ...INITIAL_STATE,
       ...(parsed || {}),
       auth: parsed?.auth?.token ? parsed.auth : null,
       trackedRequests: tracked,
-      reProfiles: typeof parsed?.reProfiles === "object" && parsed?.reProfiles ? parsed.reProfiles : {}
+      reProfiles:
+        typeof parsed?.reProfiles === "object" && parsed?.reProfiles
+          ? parsed.reProfiles
+          : {},
     };
   } catch {
     return { ...INITIAL_STATE };
@@ -137,9 +138,11 @@ function bindLoginRoleBehavior() {
 
   const rolePlaceholders = {
     re: "regulated entity email",
-    eo: "officer@example.com"
+    eo: "officer@example.com",
   };
-  const textNode = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+  const textNode = [...label.childNodes].find(
+    (node) => node.nodeType === Node.TEXT_NODE,
+  );
 
   const setRoleMode = () => {
     const role = roleSelect.value;
@@ -190,16 +193,16 @@ async function onRegister(event) {
         password: data.password,
         email: normalizeEmail(data.email),
         organization_name: data.organization_name,
-        organization_address: data.organization_address
+        organization_address: data.organization_address,
       },
-      skipAuth: true
+      skipAuth: true,
     });
 
     upsertReProfile({
       email: normalizeEmail(data.email),
       contact_person_name: data.contact_person_name,
       organization_name: data.organization_name,
-      organization_address: data.organization_address
+      organization_address: data.organization_address,
     });
 
     form.reset();
@@ -227,23 +230,26 @@ async function onLogin(event) {
       body: {
         account_type: accountType,
         email: String(data.email || "").toLowerCase(),
-        password: data.password
+        password: data.password,
       },
-      skipAuth: true
+      skipAuth: true,
     });
 
     state.auth = {
       token: loginResponse.token,
       accountType,
       accountId: 0,
-      email: normalizeEmail(data.email)
+      email: normalizeEmail(data.email),
     };
 
     await syncSessionFromWhoAmI();
 
     renderSessionState();
     form.reset();
-    showNotice(`${ROLE_LABELS[ACCOUNT_TYPE_TO_UI_ROLE[state.auth.accountType]]} signed in.`, "success");
+    showNotice(
+      `${ROLE_LABELS[ACCOUNT_TYPE_TO_UI_ROLE[state.auth.accountType]]} signed in.`,
+      "success",
+    );
   } catch (error) {
     clearAuth();
     renderSessionState();
@@ -288,8 +294,12 @@ function renderSessionState() {
     button.classList.toggle("hidden", button.dataset.role !== uiRole);
   });
 
-  const availableTabs = tabs.filter((button) => !button.classList.contains("hidden"));
-  const activeButton = availableTabs.find((button) => button.dataset.view === activeView) || availableTabs[0];
+  const availableTabs = tabs.filter(
+    (button) => !button.classList.contains("hidden"),
+  );
+  const activeButton =
+    availableTabs.find((button) => button.dataset.view === activeView) ||
+    availableTabs[0];
   activeButton?.click();
 }
 
@@ -319,14 +329,16 @@ async function refreshSessionFromWhoAmI() {
 async function syncSessionFromWhoAmI() {
   const who = await apiRequest("/whoami");
   if (!isSupportedAccountType(who.account_type)) {
-    throw new Error("This UI currently supports regulated entity and environmental officer workflows only.");
+    throw new Error(
+      "This UI currently supports regulated entity and environmental officer workflows only.",
+    );
   }
 
   state.auth = {
     ...state.auth,
     accountType: who.account_type,
     accountId: Number(who.account_id || 0),
-    email: normalizeEmail(who.email || state.auth?.email)
+    email: normalizeEmail(who.email || state.auth?.email),
   };
   saveState();
   return state.auth;
@@ -343,25 +355,33 @@ function initReAccountTab() {
     ["Account Type", "regulated_entity"],
     ["Contact", cached.contact_person_name || "Not available from API"],
     ["Organization", cached.organization_name || "Not available from API"],
-    ["Address", cached.organization_address || "Not available from API"]
+    ["Address", cached.organization_address || "Not available from API"],
   ];
 
   profile.innerHTML = rows
-    .map(([label, value]) => `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`)
+    .map(
+      ([label, value]) =>
+        `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
+    )
     .join("");
 
   if (note) {
-    note.textContent = "Password updates are not exposed by the current backend API.";
+    note.textContent =
+      "Password updates are not exposed by the current backend API.";
   }
 }
 
 function initRePermitTab() {
   //Load permit templates and submit permit requests
-  renderPermitTemplates();
+  void loadEnvironmentalPermits().then(() => {
+    renderPermitTemplates();
+  });
   renderRePermitList();
 
   bindSubmit("#permit-app-form", async (data, form) => {
-    const permitId = Number(data.environmental_permit_id_manual || data.environmental_permit_id);
+    const permitId = Number(
+      data.environmental_permit_id_manual || data.environmental_permit_id,
+    );
     const durationHours = Number(data.activity_duration_hours);
     const startDateIso = toDateOnlyISO(data.activity_start_date);
 
@@ -374,7 +394,10 @@ function initRePermitTab() {
       return;
     }
     if (!Number.isFinite(durationHours) || durationHours <= 0) {
-      showNotice("Activity duration must be a positive number of hours.", "error");
+      showNotice(
+        "Activity duration must be a positive number of hours.",
+        "error",
+      );
       return;
     }
 
@@ -385,13 +408,16 @@ function initRePermitTab() {
         activity_start_date: startDateIso,
         //Convert hours to nanoseconds for backend duration format
         activity_duration: Math.round(durationHours * 60 * 60 * 1000000000),
-        environmental_permit_id: permitId
-      }
+        environmental_permit_id: permitId,
+      },
     });
 
     const requestId = Number(response.id || 0);
     if (!requestId) {
-      showNotice("Permit request was created but the response was missing an ID.", "error");
+      showNotice(
+        "Permit request was created but the response was missing an ID.",
+        "error",
+      );
       return;
     }
 
@@ -404,7 +430,7 @@ function initRePermitTab() {
       permitFee: Number(response.permit_fee || 0),
       status: STATUS.pendingPayment,
       permitCreated: false,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     });
     appendTrackedNote(requestId, "Permit request created.");
     saveState();
@@ -414,6 +440,26 @@ function initRePermitTab() {
     renderRePermitList();
     showNotice(`Permit request #${requestId} created.`, "success");
   });
+}
+
+async function loadEnvironmentalPermits() {
+  try {
+    const payload = await apiRequest("/environmental-permits", {
+      skipAuth: true,
+    });
+    environmentalPermits = Array.isArray(payload.items)
+      ? payload.items
+          .map((item) => ({
+            id: Number(item?.id || 0),
+            permit_name: String(item?.permit_name || ""),
+            permit_fee: Number(item?.permit_fee || 0),
+            description: String(item?.description || ""),
+          }))
+          .filter((item) => item.id > 0)
+      : [];
+  } catch {
+    environmentalPermits = [];
+  }
 }
 
 function initRePaymentTab() {
@@ -429,21 +475,31 @@ function initRePaymentTab() {
     }
 
     if (!/^\d{4}$/.test(String(data.last_four_digits_of_card || ""))) {
-      showNotice("Last four card digits must be exactly four numbers.", "error");
+      showNotice(
+        "Last four card digits must be exactly four numbers.",
+        "error",
+      );
       return;
     }
 
-    const response = await apiRequest(`/permit-request/${requestId}/submit_payment`, {
-      method: "POST",
-      body: {
-        payment_method: data.payment_method,
-        last_four_digits_of_card: data.last_four_digits_of_card,
-        card_holder_name: data.card_holder_name
-      }
-    });
+    const response = await apiRequest(
+      `/permit-request/${requestId}/submit_payment`,
+      {
+        method: "POST",
+        body: {
+          payment_method: data.payment_method,
+          last_four_digits_of_card: data.last_four_digits_of_card,
+          card_holder_name: data.card_holder_name,
+        },
+      },
+    );
 
     ensureTrackedRequest(requestId, state.auth?.email || "");
-    updateTrackedStatus(requestId, response.status || STATUS.reviewingPayment, "Payment submitted.");
+    updateTrackedStatus(
+      requestId,
+      response.status || STATUS.reviewingPayment,
+      "Payment submitted.",
+    );
     saveState();
 
     form.reset();
@@ -460,7 +516,10 @@ function initReAckTab() {
     rows,
     "No tracked workflow updates are available.",
     (item) =>
-      card(item.id, [detail("Current status", item.status || "Unknown"), detail("Latest note", latestNote(item) || "No note available")])
+      card(item.id, [
+        detail("Current status", item.status || "Unknown"),
+        detail("Latest note", latestNote(item) || "No note available"),
+      ]),
   );
 }
 
@@ -475,7 +534,8 @@ function initEoAccountTab() {
   `;
 
   if (note) {
-    note.textContent = "Password updates are not exposed by the current backend API.";
+    note.textContent =
+      "Password updates are not exposed by the current backend API.";
   }
 }
 
@@ -491,8 +551,15 @@ async function initEoReviewTab() {
       return;
     }
 
-    const response = await apiRequest(`/eo/permit-request/${requestId}/start-review`, { method: "POST" });
-    updateTrackedStatus(requestId, response.status || STATUS.beingReviewed, "EO started review.");
+    const response = await apiRequest(
+      `/eo/permit-request/${requestId}/start-review`,
+      { method: "POST" },
+    );
+    updateTrackedStatus(
+      requestId,
+      response.status || STATUS.beingReviewed,
+      "EO started review.",
+    );
     saveState();
 
     form.reset();
@@ -519,20 +586,27 @@ function initEoIssueTab() {
       body: {
         permit_request_id: requestId,
         decision: data.decision,
-        description: data.description
-      }
+        description: data.description,
+      },
     });
 
     const decision = response.decision || data.decision;
     const tracked = findTrackedRequest(requestId);
     if (tracked) tracked.permitCreated = decision === STATUS.accepted;
-    updateTrackedStatus(requestId, decision, `EO final decision: ${data.description}`);
+    updateTrackedStatus(
+      requestId,
+      decision,
+      `EO final decision: ${data.description}`,
+    );
     saveState();
 
     form.reset();
     renderKnownBeingReviewed();
     renderEoDecisionSelector();
-    showNotice(`EO final decision submitted for request #${requestId}.`, "success");
+    showNotice(
+      `EO final decision submitted for request #${requestId}.`,
+      "success",
+    );
   });
 }
 
@@ -558,7 +632,7 @@ async function initEoReportTab() {
     ["Being Reviewed", countByStatus(rows, STATUS.beingReviewed)],
     ["Accepted", countByStatus(rows, STATUS.accepted)],
     ["Rejected", countByStatus(rows, STATUS.rejected)],
-    ["Live Submitted Queue", submittedQueueCount]
+    ["Live Submitted Queue", submittedQueueCount],
   ];
 
   const summary = $("#eo-report-summary");
@@ -570,7 +644,7 @@ async function initEoReportTab() {
             <p class="font-mono text-xs uppercase tracking-wide text-slate-500">${escapeHtml(label)}</p>
             <p class="text-xl font-semibold text-slate-900">${escapeHtml(value)}</p>
           </div>
-        `
+        `,
       )
       .join("");
   }
@@ -579,7 +653,8 @@ async function initEoReportTab() {
   if (!table) return;
 
   if (!rows.length) {
-    table.innerHTML = '<tr><td class="px-2 py-2 text-slate-600" colspan="7">No tracked requests are available.</td></tr>';
+    table.innerHTML =
+      '<tr><td class="px-2 py-2 text-slate-600" colspan="7">No tracked requests are available.</td></tr>';
     return;
   }
 
@@ -595,7 +670,7 @@ async function initEoReportTab() {
           <td class="px-2 py-2">${escapeHtml(item.permitCreated ? "Created" : "Not created")}</td>
           <td class="px-2 py-2">${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "n/a")}</td>
         </tr>
-      `
+      `,
     )
     .join("");
 }
@@ -615,8 +690,11 @@ async function refreshEoSubmittedQueue() {
       (item) => {
         const id = requestIdFromApi(item);
         const status = latestStatusFromApi(item) || STATUS.submitted;
-        return card(id, [detail("Status", status), detail("Regulated Entity ID", item.RegulatedEntityID || "n/a")]);
-      }
+        return card(id, [
+          detail("Status", status),
+          detail("Regulated Entity ID", item.RegulatedEntityID || "n/a"),
+        ]);
+      },
     );
 
     setSelectOptions(
@@ -624,34 +702,48 @@ async function refreshEoSubmittedQueue() {
       "Select submitted request",
       items,
       (item) => requestIdFromApi(item),
-      (item) => `#${requestIdFromApi(item)} - ${latestStatusFromApi(item) || STATUS.submitted}`
+      (item) =>
+        `#${requestIdFromApi(item)} - ${latestStatusFromApi(item) || STATUS.submitted}`,
     );
   } catch (error) {
-    renderList("#eo-review-list", [], "Unable to load EO submitted queue.", () => "");
+    renderList(
+      "#eo-review-list",
+      [],
+      "Unable to load EO submitted queue.",
+      () => "",
+    );
     showNotice(`Failed to load EO queue: ${error.message}`, "error");
   }
 }
 
 function renderPermitTemplates() {
+  const permits = environmentalPermits;
   setSelectOptions(
     "#permit-app-form select[name='environmental_permit_id']",
     "Select permit template",
-    DEFAULT_ENVIRONMENTAL_PERMITS,
+    permits,
     (item) => item.id,
-    (item) => `${item.id} - ${item.permit_name} (${money(item.permit_fee)})`
+    (item) => `${item.id} - ${item.permit_name} (${money(item.permit_fee)})`,
   );
 
   const list = $("#permit-template-list");
   if (!list) return;
 
-  list.innerHTML = DEFAULT_ENVIRONMENTAL_PERMITS
+  if (!permits.length) {
+    list.innerHTML =
+      '<li class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">No permit templates are available.</li>';
+    return;
+  }
+
+  list.innerHTML = permits
     .map(
       (item) => `
         <li class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
           <p class="font-semibold text-slate-800">${escapeHtml(item.id)} - ${escapeHtml(item.permit_name)}</p>
-          <p>Default fee: ${escapeHtml(money(item.permit_fee))}</p>
+          <p>Fee: ${escapeHtml(money(item.permit_fee))}</p>
+          ${item.description ? `<p class="mt-1 text-slate-600">${escapeHtml(item.description)}</p>` : ""}
         </li>
-      `
+      `,
     )
     .join("");
 }
@@ -667,19 +759,21 @@ function renderRePermitList() {
         detail("Status", item.status || "Unknown"),
         detail("Permit Template ID", item.environmentalPermitId || "n/a"),
         detail("Permit Fee", money(item.permitFee || 0)),
-        detail("Activity", item.activityDescription || "n/a")
-      ])
+        detail("Activity", item.activityDescription || "n/a"),
+      ]),
   );
 }
 
 function renderRePaymentSelectors() {
-  const pending = trackedRequestsForCurrentRe().filter((item) => item.status === STATUS.pendingPayment);
+  const pending = trackedRequestsForCurrentRe().filter(
+    (item) => item.status === STATUS.pendingPayment,
+  );
   setSelectOptions(
     "#payment-form select[name='request_id']",
     "Select pending request",
     pending,
     (item) => item.id,
-    (item) => `#${item.id} - ${money(item.permitFee || 0)}`
+    (item) => `#${item.id} - ${money(item.permitFee || 0)}`,
   );
 }
 
@@ -689,28 +783,40 @@ function renderRePaymentList() {
     "#re-payment-list",
     rows,
     "No tracked requests are available for payment.",
-    (item) => card(item.id, [detail("Status", item.status || "Unknown"), detail("Latest note", latestNote(item) || "No note available")])
+    (item) =>
+      card(item.id, [
+        detail("Status", item.status || "Unknown"),
+        detail("Latest note", latestNote(item) || "No note available"),
+      ]),
   );
 }
 
 function renderKnownBeingReviewed() {
-  const rows = sortedTrackedRequests().filter((item) => item.status === STATUS.beingReviewed);
+  const rows = sortedTrackedRequests().filter(
+    (item) => item.status === STATUS.beingReviewed,
+  );
   renderList(
     "#eo-being-reviewed-list",
     rows,
     "No tracked requests are currently in Being Reviewed.",
-    (item) => card(item.id, [detail("Owner", item.ownerEmail || "unknown"), detail("Activity", item.activityDescription || "n/a")])
+    (item) =>
+      card(item.id, [
+        detail("Owner", item.ownerEmail || "unknown"),
+        detail("Activity", item.activityDescription || "n/a"),
+      ]),
   );
 }
 
 function renderEoDecisionSelector() {
-  const rows = sortedTrackedRequests().filter((item) => item.status === STATUS.beingReviewed);
+  const rows = sortedTrackedRequests().filter(
+    (item) => item.status === STATUS.beingReviewed,
+  );
   setSelectOptions(
     "#eo-final-decision-form select[name='request_id']",
     "Select being-reviewed request",
     rows,
     (item) => item.id,
-    (item) => `#${item.id} - ${item.activityDescription || "request"}`
+    (item) => `#${item.id} - ${item.activityDescription || "request"}`,
   );
 }
 
@@ -734,10 +840,18 @@ function renderList(selector, items, emptyText, itemToHtml) {
   const container = $(selector);
   if (!container) return;
 
-  container.innerHTML = items.length ? items.map(itemToHtml).join("") : `<p class="text-sm text-slate-600">${escapeHtml(emptyText)}</p>`;
+  container.innerHTML = items.length
+    ? items.map(itemToHtml).join("")
+    : `<p class="text-sm text-slate-600">${escapeHtml(emptyText)}</p>`;
 }
 
-function setSelectOptions(selector, placeholder, items, valueBuilder = (item) => item.id, labelBuilder = (item) => item.id) {
+function setSelectOptions(
+  selector,
+  placeholder,
+  items,
+  valueBuilder = (item) => item.id,
+  labelBuilder = (item) => item.id,
+) {
   //Populate select options from item collection
   const select = $(selector);
   if (!select) return;
@@ -776,7 +890,7 @@ function upsertReProfile(profile) {
     email,
     contact_person_name: profile.contact_person_name || "",
     organization_name: profile.organization_name || "",
-    organization_address: profile.organization_address || ""
+    organization_address: profile.organization_address || "",
   };
   saveState();
 }
@@ -813,7 +927,7 @@ function ensureTrackedRequest(id, ownerEmail = "") {
     status: "",
     permitCreated: false,
     updatedAt: new Date().toISOString(),
-    notes: []
+    notes: [],
   };
 
   state.trackedRequests.push(created);
@@ -827,17 +941,33 @@ function normalizeTrackedPatch(patch, fallback = {}) {
 
   return {
     id: Number(patch?.id || fallback.id || 0),
-    ownerEmail: patch?.ownerEmail !== undefined ? normalizeEmail(patch.ownerEmail) : normalizeEmail(fallback.ownerEmail),
-    activityDescription: patch?.activityDescription ?? fallback.activityDescription ?? "",
+    ownerEmail:
+      patch?.ownerEmail !== undefined
+        ? normalizeEmail(patch.ownerEmail)
+        : normalizeEmail(fallback.ownerEmail),
+    activityDescription:
+      patch?.activityDescription ?? fallback.activityDescription ?? "",
     environmentalPermitId:
-      environmentPermitId !== undefined && environmentPermitId !== null && environmentPermitId !== ""
+      environmentPermitId !== undefined &&
+      environmentPermitId !== null &&
+      environmentPermitId !== ""
         ? Number(environmentPermitId)
         : Number(fallback.environmentalPermitId || 0),
-    permitFee: Number.isFinite(permitFee) ? permitFee : Number(fallback.permitFee || 0),
+    permitFee: Number.isFinite(permitFee)
+      ? permitFee
+      : Number(fallback.permitFee || 0),
     status: patch?.status ?? fallback.status ?? "",
-    permitCreated: typeof patch?.permitCreated === "boolean" ? patch.permitCreated : Boolean(fallback.permitCreated),
-    updatedAt: patch?.updatedAt || fallback.updatedAt || new Date().toISOString(),
-    notes: Array.isArray(patch?.notes) ? patch.notes.slice(-10) : Array.isArray(fallback.notes) ? fallback.notes.slice(-10) : []
+    permitCreated:
+      typeof patch?.permitCreated === "boolean"
+        ? patch.permitCreated
+        : Boolean(fallback.permitCreated),
+    updatedAt:
+      patch?.updatedAt || fallback.updatedAt || new Date().toISOString(),
+    notes: Array.isArray(patch?.notes)
+      ? patch.notes.slice(-10)
+      : Array.isArray(fallback.notes)
+        ? fallback.notes.slice(-10)
+        : [],
   };
 }
 
@@ -858,7 +988,10 @@ function upsertTrackedRequest(patch) {
 function appendNote(request, message) {
   //Append timestamped note and keep recent history
   if (!request || !message) return;
-  request.notes = [...(request.notes || []), `${new Date().toLocaleString()}: ${message}`].slice(-10);
+  request.notes = [
+    ...(request.notes || []),
+    `${new Date().toLocaleString()}: ${message}`,
+  ].slice(-10);
 }
 
 function appendTrackedNote(id, message) {
@@ -876,7 +1009,9 @@ function updateTrackedStatus(id, status, note) {
 }
 
 function latestNote(item) {
-  return Array.isArray(item?.notes) && item.notes.length ? item.notes[item.notes.length - 1] : "";
+  return Array.isArray(item?.notes) && item.notes.length
+    ? item.notes[item.notes.length - 1]
+    : "";
 }
 
 function syncTrackedFromApiItems(items) {
@@ -889,12 +1024,15 @@ function syncTrackedFromApiItems(items) {
     upsertTrackedRequest({
       id,
       ownerEmail: existing?.ownerEmail || "",
-      activityDescription: item.ActivityDescription || existing?.activityDescription || "",
-      environmentalPermitId: Number(item.EnvironmentalPermitID || existing?.environmentalPermitId || 0),
+      activityDescription:
+        item.ActivityDescription || existing?.activityDescription || "",
+      environmentalPermitId: Number(
+        item.EnvironmentalPermitID || existing?.environmentalPermitId || 0,
+      ),
       permitFee: Number(item.PermitFee || existing?.permitFee || 0),
       status: latestStatusFromApi(item) || existing?.status || "",
       permitCreated: Boolean(item.Permit) || existing?.permitCreated,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     });
   });
 }
@@ -908,7 +1046,9 @@ function latestStatusFromApi(item) {
   const statuses = Array.isArray(item?.Statuses) ? item.Statuses : [];
   if (!statuses.length) return "";
 
-  const latest = statuses.reduce((max, current) => (Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max));
+  const latest = statuses.reduce((max, current) =>
+    Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max,
+  );
   return latest?.Status || "";
 }
 
@@ -933,7 +1073,7 @@ async function apiRequest(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -950,7 +1090,9 @@ async function apiRequest(path, options = {}) {
 
 function extractApiError(payload, response) {
   //Build readable error from backend payload
-  const parts = [payload?.error, payload?.message, payload?.details].filter(Boolean);
+  const parts = [payload?.error, payload?.message, payload?.details].filter(
+    Boolean,
+  );
   if (parts.length) return parts.join(" | ");
   return `${response.status} ${response.statusText || "Request failed"}`;
 }
@@ -979,7 +1121,7 @@ function showNotice(message, level = "info") {
   const styles = {
     success: "border-env-500 bg-env-100 text-env-700",
     error: "border-warn-600 bg-warn-100 text-warn-600",
-    info: "border-gov-300 bg-gov-100 text-gov-700"
+    info: "border-gov-300 bg-gov-100 text-gov-700",
   };
 
   banner.className = `mt-4 rounded-lg border px-4 py-3 text-sm ${styles[level] || styles.info}`;
