@@ -1,0 +1,34 @@
+<section class="grid gap-4 lg:grid-cols-2">
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">EO Final Decision</h3>
+    <p class="mt-1 text-sm text-slate-600">Apply Accepted or Rejected to requests already in Being Reviewed.</p>
+    <form id="eo-final-decision-form" class="mt-3 grid gap-3">
+      <label class="text-sm text-slate-700">
+        Being Reviewed Request
+        <select class="field" name="request_id"></select>
+      </label>
+      <label class="text-sm text-slate-700">
+        Permit Request ID (manual)
+        <input class="field" type="number" name="request_id_manual" inputmode="numeric" min="1" placeholder="optional" />
+      </label>
+      <label class="text-sm text-slate-700">
+        Decision
+        <select class="field" name="decision" required>
+          <option value="Accepted">Accepted</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+      </label>
+      <label class="text-sm text-slate-700">
+        Decision Description
+        <textarea class="field" rows="3" name="description" required></textarea>
+      </label>
+      <button class="btn-primary" type="submit">Submit Final Decision</button>
+    </form>
+  </article>
+
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Tracked Being Reviewed Requests</h3>
+    <p class="mt-1 text-sm text-slate-600">Known requests currently marked as Being Reviewed.</p>
+    <div id="eo-being-reviewed-list" class="mt-3 space-y-2"></div>
+  </article>
+</section>
