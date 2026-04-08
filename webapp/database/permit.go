@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Permit request status constants define the workflow states
 const (
 	PermitRequestStatusPendingPayment   = "Pending Payment"
 	PermitRequestStatusReviewingPayment = "Reviewing Payment"
@@ -15,6 +16,8 @@ const (
 	PermitRequestStatusAccepted         = "Accepted"
 )
 
+// PermitRequest represents a permit application submitted by a regulated entity
+// It contains all the information needed to process the permit request through the workflow
 type PermitRequest struct {
 	gorm.Model
 	RegulatedEntityID     uint
