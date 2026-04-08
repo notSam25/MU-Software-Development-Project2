@@ -12,7 +12,6 @@ var (
 	DB *gorm.DB
 )
 
-
 // GetEnv retrieves an environment variable value or returns a default if not set
 // This is a utility function for configuration management
 func GetEnv(key, defaultValue string) string {
@@ -91,20 +90,6 @@ func SeedDefaultEntries() error {
 		EnvironmentalOfficer{Email: defaultEO.Email},
 	).Error; err != nil {
 		return fmt.Errorf("failed to create default environmental officer: %w", err)
-	}
-
-	// Create default OPS account if it doesn't exist
-	defaultOPS := &OPS{
-		Name:     "Default OPS",
-		Email:    "ops@example.com",
-		Password: "default-password-123",
-	}
-
-	if err := DB.FirstOrCreate(
-		defaultOPS,
-		OPS{Email: defaultOPS.Email},
-	).Error; err != nil {
-		return fmt.Errorf("failed to create default OPS account: %w", err)
 	}
 
 	// Define default environmental permit templates

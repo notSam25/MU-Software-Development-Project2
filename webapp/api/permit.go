@@ -7,13 +7,12 @@ import (
 	"time"
 
 	"project/database"
-	"project/middleware"
 	"project/email"
+	"project/middleware"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
-
 
 // latestPermitRequestStatus retrieves the most recent status for a given permit request ID
 // It queries the database for the status with the highest ID (most recent) for the specified permit request
@@ -135,7 +134,6 @@ func RequestPermit(ctx *gin.Context) {
 		fmt.Println("Failed to send pending payment email notification:", err)
 	}
 
-
 	// Return success response with permit request details and fee information
 	ctx.JSON(http.StatusCreated, gin.H{
 		"message":    "Permit request created successfully",
@@ -145,7 +143,8 @@ func RequestPermit(ctx *gin.Context) {
 }
 
 // SubmitPermitPayment allows a regulated entity to submit payment information for a pending permit request
-// It validates the request, creates a payment record, and advances the permit request status to "Reviewing Payment"
+// It validates the request, creates a payment record, and immediately marks the payment as approved
+// so the permit request can advance directly to the Submitted state without OPS review.
 func SubmitPermitPayment(ctx *gin.Context) {
 	// Verify the authenticated user is a regulated entity
 	reAny, _ := ctx.Get(middleware.ContextRegulatedEntityKey)
@@ -215,7 +214,7 @@ func SubmitPermitPayment(ctx *gin.Context) {
 		PaymentMethod:        payload.PaymentMethod,
 		LastFourDigitsOfCard: payload.LastFourDigitsOfCard,
 		CardHolderName:       payload.CardHolderName,
-		PaymentApproved:      false,
+		PaymentApproved:      true,
 	}
 
 	// Use a transaction to create the payment and update the status
@@ -223,109 +222,21 @@ func SubmitPermitPayment(ctx *gin.Context) {
 		if err := tx.Create(&payment).Error; err != nil {
 			return err
 		}
-		return appendPermitRequestStatus(tx, permitRequest.ID, database.PermitRequestStatusReviewingPayment, "Reviewing payment")
+		return appendPermitRequestStatus(tx, permitRequest.ID, database.PermitRequestStatusSubmitted, "Payment automatically approved")
 	}); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to submit payment", "details": err.Error()})
 		return
 	}
 
-	if err := email.NotifyReviewingPayment(re.Email, permitRequest.ID); err != nil {
-		fmt.Println("Failed to send reviewing payment email notification:", err)
+	if err := email.NotifyPaymentDecision(re.Email, permitRequest.ID, "Approved"); err != nil {
+		fmt.Println("Failed to send payment decision email notification:", err)
 	}
 
 	// Return success response with updated status
 	ctx.JSON(http.StatusCreated, gin.H{
 		"message":           "Payment submitted successfully",
 		"permit_request_id": permitRequest.ID,
-		"status":            database.PermitRequestStatusReviewingPayment,
-	})
-}
-
-// ReviewPermitPayment allows OPS personnel to review and approve/reject submitted payments
-// It validates the OPS user, checks the permit request status, and updates the payment approval status
-func ReviewPermitPayment(ctx *gin.Context) {
-	// Verify the authenticated user is OPS personnel
-	opsAny, _ := ctx.Get(middleware.ContextOPSKey)
-	ops, ok := opsAny.(*database.OPS)
-	if !ok || ops == nil {
-		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only OPS can review payments"})
-		return
-	}
-	_ = ops
-
-	// Extract permit request ID from URL
-	requestIDRaw := ctx.Param("request_id")
-	requestID, err := strconv.ParseUint(requestIDRaw, 10, 64)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request id"})
-		return
-	}
-
-	// Define expected payload for payment review decision
-	type reviewPaymentBody struct {
-		Decision    string `json:"decision" binding:"required,oneof=Submitted Rejected"`
-		Description string `json:"description" binding:"required"`
-	}
-
-	var payload reviewPaymentBody
-	if err := ctx.ShouldBindJSON(&payload); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid body format", "details": err.Error()})
-		return
-	}
-
-	// Retrieve permit request with status and payment information
-	var permitRequest database.PermitRequest
-	if err := database.DB.Preload("Statuses").Preload("Payment").First(&permitRequest, uint(requestID)).Error; err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request reference"})
-		return
-	}
-
-	// Check current status is appropriate for payment review
-	latestStatus, err := latestPermitRequestStatus(database.DB, permitRequest.ID)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Permit request has no workflow status"})
-		return
-	}
-	if latestStatus.Status != database.PermitRequestStatusReviewingPayment {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Payment can only be reviewed when request is Reviewing Payment"})
-		return
-	}
-
-	// Ensure there's a payment record if trying to mark as Submitted
-	if payload.Decision == database.PermitRequestStatusSubmitted && permitRequest.Payment == nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Cannot mark payment as Submitted without a payment record"})
-		return
-	}
-
-	// Determine the new status based on the decision
-	newStatus := payload.Decision
-
-	// Update the status and payment approval in a transaction
-	if err := database.DB.Transaction(func(tx *gorm.DB) error {
-		if err := appendPermitRequestStatus(tx, permitRequest.ID, newStatus, payload.Description); err != nil {
-			return err
-		}
-		// If payment is approved, update the payment record
-		if newStatus == database.PermitRequestStatusSubmitted && permitRequest.Payment != nil {
-			return tx.Model(&database.Payment{}).Where("permit_request_id = ?", permitRequest.ID).Update("payment_approved", true).Error
-		}
-		return nil
-	}); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to update payment review", "details": err.Error()})
-		return
-	}
-
-	var re database.RegulatedEntities
-	database.DB.First(&re, permitRequest.RegulatedEntityID)
-	if err := email.NotifyPaymentDecision(re.Email, permitRequest.ID, payload.Decision); err != nil {
-		fmt.Println("Failed to send payment decision email notification:", err)
-	}
-
-	// Return success response
-	ctx.JSON(http.StatusCreated, gin.H{
-		"message":           "Payment review status applied successfully",
-		"permit_request_id": permitRequest.ID,
-		"status":            newStatus,
+		"status":            database.PermitRequestStatusSubmitted,
 	})
 }
 
@@ -480,29 +391,6 @@ func ReviewPermit(ctx *gin.Context) {
 		"permit_request_id": permitRequest.ID,
 		"decision":          payload.Decision,
 	})
-}
-
-// ListReviewingPaymentRequests returns all permit requests currently under payment review by OPS
-// This endpoint is restricted to OPS personnel only
-func ListReviewingPaymentRequests(ctx *gin.Context) {
-	// Verify the authenticated user is OPS personnel
-	opsAny, _ := ctx.Get(middleware.ContextOPSKey)
-	if ops, ok := opsAny.(*database.OPS); !ok || ops == nil {
-		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only OPS can list reviewing payment requests"})
-		return
-	} else {
-		_ = ops
-	}
-
-	// Retrieve all permit requests with "Reviewing Payment" status
-	requests, err := currentPermitRequestsWithStatus(database.PermitRequestStatusReviewingPayment)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list requests", "details": err.Error()})
-		return
-	}
-
-	// Return the list of requests
-	ctx.JSON(http.StatusOK, gin.H{"items": requests})
 }
 
 // ListPaymentSubmittedRequests returns all permit requests with approved payments waiting for EO review

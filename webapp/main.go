@@ -47,7 +47,7 @@ func main() {
 		// Endpoint for registering a new regulated entity account
 		api_group.POST("/register", api.RegisterRegulatedEntity)
 
-		// Endpoint for user login, supporting different account types (regulated_entity, environmental_officer, ops)
+		// Endpoint for user login, supporting regulated entity and environmental officer accounts
 		api_group.POST("/login", api.Login)
 
 		// Create a subgroup for protected endpoints that require authentication
@@ -62,12 +62,6 @@ func main() {
 
 			// Endpoint for regulated entities to submit payment for a permit request
 			protected.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)
-
-			// Endpoint for OPS to list permit requests that are currently under payment review
-			protected.GET("/ops/permit-requests/reviewing-payment", api.ListReviewingPaymentRequests)
-
-			// Endpoint for OPS to review and approve/reject payments for permit requests
-			protected.POST("/ops/permit-request/:request_id/review_payment", api.ReviewPermitPayment)
 
 			// Endpoint for environmental officers to list permit requests with submitted payments
 			protected.GET("/eo/permit-requests/submitted-payment", api.ListPaymentSubmittedRequests)
