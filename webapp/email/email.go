@@ -13,7 +13,7 @@ func SendEmail(recipient, subject, body string) error {
 	var SMTPHost = database.GetEnv("SMTP_HOST", "smtp.gmail.com")
 	var SMTPPort = database.GetEnv("SMTP_PORT", "587")
 	var SMTPEmail = database.GetEnv("SMTP_EMAIL", "")
-	var SMTPPassword = database.GetEnv("SMTP_PASSWORD", database.GetEnv("SMPT_PASSWORD", ""))
+	var SMTPPassword = database.GetEnv("SMTP_PASSWORD", "")
 
 	//Set up authentication information for the SMTP server
 	auth := smtp.PlainAuth("", SMTPEmail, SMTPPassword, SMTPHost)
@@ -41,13 +41,14 @@ func SendEmail(recipient, subject, body string) error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to SMTP server: %v", err)
 		}
-		// Upgrade to TLS before authenticating when the server supports it.
-		// Many SMTP providers reject AUTH over an unencrypted connection.
 		if ok, _ := client.Extension("STARTTLS"); ok {
 			if err := client.StartTLS(&tls.Config{ServerName: SMTPHost}); err != nil {
 				_ = client.Close()
 				return fmt.Errorf("failed to start TLS with SMTP server: %v", err)
 			}
+		} else if SMTPPassword != "" {
+			_ = client.Close()
+			return fmt.Errorf("SMTP server does not support STARTTLS; refusing to send credentials over an unencrypted connection")
 		}
 	}
 	defer client.Quit()
@@ -94,7 +95,7 @@ func NotifyReviewingPayment(toEmail string, permitRequestID uint) error {
 	return SendEmail(toEmail, subject, body)
 }
 
-// Email format for notifying RE of payment decsision
+// Email format for notifying RE of payment decision
 func NotifyPaymentDecision(toEmail string, permitRequestID uint, decision string) error {
 	subject := "Payment Decision for Environmental Permit Request"
 	body := fmt.Sprintf("Your payment for environmental permit request with ID %d has been reviewed. The decision is: %s.", permitRequestID, decision)

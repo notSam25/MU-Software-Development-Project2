@@ -43,7 +43,7 @@ func Login(ctx *gin.Context) {
 		//Generates login token containing the Regulated Entity's ID and account type
 		token, err := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
 
-		//If token generation is unsucessful return 500 error and stop execution
+		//If token generation is unsuccessful return 500 error and stop execution
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return
@@ -66,7 +66,7 @@ func Login(ctx *gin.Context) {
 		//Generates login token containing the Environmental Officer's ID and account type
 		token, err := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
 
-		//If token generation is unsucessful return 500 error and stop execution
+		//If token generation is unsuccessful return 500 error and stop execution
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 			return

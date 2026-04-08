@@ -34,8 +34,8 @@ type EnvironmentalOfficer struct {
 	Password string `json:"password"`
 }
 
-// OPS represents Operations personnel who review payment submissions
-// They verify payment information before environmental officers review the permit content
+// OPS represents Operations personnel who were previously used to review payment submissions.
+// Payments are now auto-approved on submission; this actor is retained for schema compatibility.
 type OPS struct {
 	gorm.Model
 	Name     string

@@ -36,23 +36,23 @@ func main() {
 	router := gin.Default()
 
 	// Create a route group for API endpoints under "/api"
-	api_group := router.Group("/api")
+	apiGroup := router.Group("/api")
 	{
 		// Define a simple ping endpoint to test if the server is running
 		// Returns a JSON response with "pong!" message
-		api_group.GET("/ping", func(ctx *gin.Context) {
+		apiGroup.GET("/ping", func(ctx *gin.Context) {
 			ctx.JSON(http.StatusOK, gin.H{"message_text": "pong!"})
 		})
 
 		// Endpoint for registering a new regulated entity account
-		api_group.POST("/register", api.RegisterRegulatedEntity)
+		apiGroup.POST("/register", api.RegisterRegulatedEntity)
 
 		// Endpoint for user login, supporting regulated entity and environmental officer accounts
-		api_group.POST("/login", api.Login)
-		api_group.GET("/environmental-permits", api.ListEnvironmentalPermits)
+		apiGroup.POST("/login", api.Login)
+		apiGroup.GET("/environmental-permits", api.ListEnvironmentalPermits)
 
 		// Create a subgroup for protected endpoints that require authentication
-		protected := api_group.Group("")
+		protected := apiGroup.Group("")
 		protected.Use(middleware.AuthRequired())
 		{
 			// Endpoint to retrieve information about the currently authenticated user

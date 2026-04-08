@@ -287,8 +287,9 @@ func ReviewPermitPaymentSubmitted(ctx *gin.Context) {
 	}
 
 	var re database.RegulatedEntities
-	database.DB.First(&re, permitRequest.RegulatedEntityID)
-	if err := email.NotifyBeingReviewed(re.Email, permitRequest.ID); err != nil {
+	if err := database.DB.First(&re, permitRequest.RegulatedEntityID).Error; err != nil {
+		fmt.Println("Failed to look up regulated entity for email notification:", err)
+	} else if err := email.NotifyBeingReviewed(re.Email, permitRequest.ID); err != nil {
 		fmt.Println("Failed to send being reviewed email notification:", err)
 	}
 
@@ -380,8 +381,9 @@ func ReviewPermit(ctx *gin.Context) {
 	}
 
 	var re database.RegulatedEntities
-	database.DB.First(&re, permitRequest.RegulatedEntityID)
-	if err := email.NotifyFinalDecision(re.Email, permitRequest.ID, payload.Decision); err != nil {
+	if err := database.DB.First(&re, permitRequest.RegulatedEntityID).Error; err != nil {
+		fmt.Println("Failed to look up regulated entity for email notification:", err)
+	} else if err := email.NotifyFinalDecision(re.Email, permitRequest.ID, payload.Decision); err != nil {
 		fmt.Println("Failed to send final decision email notification:", err)
 	}
 
