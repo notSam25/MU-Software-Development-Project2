@@ -14,6 +14,7 @@ const (
 	PermitRequestStatusRejected         = "Rejected"
 	PermitRequestStatusBeingReviewed    = "Being Reviewed"
 	PermitRequestStatusAccepted         = "Accepted"
+	PermitRequestStatusAcknowledged     = "Acknowledged"
 )
 
 // PermitRequest represents a permit application submitted by a regulated entity
