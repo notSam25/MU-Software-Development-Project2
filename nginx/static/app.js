@@ -456,7 +456,9 @@ async function initReAccountTab() {
     const nextEmail = normalizeEmail(updated.email || previousEmail);
     if (previousEmail && nextEmail && previousEmail !== nextEmail) {
       state.trackedRequests = state.trackedRequests.map((item) =>
-        item.ownerEmail === previousEmail ? { ...item, ownerEmail: nextEmail } : item,
+        item.ownerEmail === previousEmail
+          ? { ...item, ownerEmail: nextEmail }
+          : item,
       );
       if (state.reProfiles[previousEmail] && !state.reProfiles[nextEmail]) {
         state.reProfiles[nextEmail] = state.reProfiles[previousEmail];
@@ -562,9 +564,11 @@ async function initRePermitTab() {
       activityDescription: data.activity_description,
       environmentalPermitId: permitId,
       permitName:
-        environmentalPermits.find((item) => item.id === permitId)?.permit_name || "",
+        environmentalPermits.find((item) => item.id === permitId)
+          ?.permit_name || "",
       permitDescription:
-        environmentalPermits.find((item) => item.id === permitId)?.description || "",
+        environmentalPermits.find((item) => item.id === permitId)
+          ?.description || "",
       permitFee: Number(response.permit_fee || 0),
       status: STATUS.pendingPayment,
       permitCreated: false,
@@ -663,13 +667,14 @@ async function initReAckTab() {
           ? "Yes"
           : "No"
         : "Not yet applicable";
-      const permitIssued = finalDecision === STATUS.accepted
-        ? item?.permitCreated
-          ? "Yes"
-          : "Pending issuance"
-        : finalDecision === STATUS.rejected
-          ? "No"
-          : "Not yet decided";
+      const permitIssued =
+        finalDecision === STATUS.accepted
+          ? item?.permitCreated
+            ? "Yes"
+            : "Pending issuance"
+          : finalDecision === STATUS.rejected
+            ? "No"
+            : "Not yet decided";
 
       const canAcknowledge =
         item?.status === STATUS.accepted || item?.status === STATUS.rejected;
@@ -704,9 +709,12 @@ async function initReAckTab() {
 
     button.disabled = true;
     try {
-      const response = await apiRequest(`/permit-request/${requestId}/acknowledge`, {
-        method: "POST",
-      });
+      const response = await apiRequest(
+        `/permit-request/${requestId}/acknowledge`,
+        {
+          method: "POST",
+        },
+      );
 
       updateTrackedStatus(
         requestId,
@@ -1090,7 +1098,10 @@ function renderKnownBeingReviewed() {
     (item) =>
       card(item.id, [
         detail("Owner", ownerDisplayName(item)),
-        detail("Owner Email", item.ownerEmail || item?.RegulatedEntity?.email || "unknown"),
+        detail(
+          "Owner Email",
+          item.ownerEmail || item?.RegulatedEntity?.email || "unknown",
+        ),
         detail("Permit Type", permitTypeDisplay(item)),
         detail("Activity", item.activityDescription || "n/a"),
       ]),
@@ -1106,7 +1117,8 @@ function renderEoDecisionSelector() {
     "Select being-reviewed request",
     rows,
     (item) => item.id,
-    (item) => `#${item.id} - ${permitTypeDisplay(item) || item.activityDescription || "request"}`,
+    (item) =>
+      `#${item.id} - ${permitTypeDisplay(item) || item.activityDescription || "request"}`,
   );
 }
 
@@ -1173,7 +1185,10 @@ function detail(label, value) {
 
 function cacheReProfileFromApiItem(item) {
   const regulatedEntity =
-    item?.RegulatedEntity || item?.regulatedEntity || item?.regulated_entity || {};
+    item?.RegulatedEntity ||
+    item?.regulatedEntity ||
+    item?.regulated_entity ||
+    {};
   const email = normalizeEmail(
     regulatedEntity?.email || item?.ownerEmail || item?.owner_email,
   );
@@ -1182,11 +1197,20 @@ function cacheReProfileFromApiItem(item) {
   state.reProfiles[email] = {
     email,
     contact_person_name:
-      regulatedEntity?.contact_person_name || item?.ownerName || item?.owner_name || "",
+      regulatedEntity?.contact_person_name ||
+      item?.ownerName ||
+      item?.owner_name ||
+      "",
     organization_name:
-      regulatedEntity?.organization_name || item?.organizationName || item?.organization_name || "",
+      regulatedEntity?.organization_name ||
+      item?.organizationName ||
+      item?.organization_name ||
+      "",
     organization_address:
-      regulatedEntity?.organization_address || item?.organizationAddress || item?.organization_address || "",
+      regulatedEntity?.organization_address ||
+      item?.organizationAddress ||
+      item?.organization_address ||
+      "",
   };
 }
 
@@ -1423,13 +1447,16 @@ function syncTrackedFromApiItems(items) {
     const latestStatus = latestStatusFromApi(item) || existing?.status || "";
     const notes = workflowNotesFromApiItem(item);
     cacheReProfileFromApiItem(item);
-    const environmentalPermit = item?.EnvironmentalPermit || item?.environmentalPermit || {};
+    const environmentalPermit =
+      item?.EnvironmentalPermit || item?.environmentalPermit || {};
     upsertTrackedRequest({
       id,
       ownerEmail:
         normalizeEmail(
           item?.ownerEmail || item?.owner_email || item?.RegulatedEntity?.email,
-        ) || existing?.ownerEmail || "",
+        ) ||
+        existing?.ownerEmail ||
+        "",
       ownerName:
         item?.ownerName ||
         item?.owner_name ||
