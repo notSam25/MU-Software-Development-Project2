@@ -81,7 +81,7 @@ func SeedDefaultEntries() error {
 	defaultEO := &EnvironmentalOfficer{
 		Name:     "Default Officer",
 		Email:    "officer@example.com",
-		Password: "default-password-123",
+		Password: "password",
 	}
 
 	// Use FirstOrCreate to avoid duplicates
@@ -90,6 +90,13 @@ func SeedDefaultEntries() error {
 		EnvironmentalOfficer{Email: defaultEO.Email},
 	).Error; err != nil {
 		return fmt.Errorf("failed to create default environmental officer: %w", err)
+	}
+
+	// Migrate legacy seeded EO password without changing user-updated credentials.
+	if err := DB.Model(&EnvironmentalOfficer{}).
+		Where("email = ? AND password = ?", defaultEO.Email, "default-password-123").
+		Update("password", "password").Error; err != nil {
+		return fmt.Errorf("failed to migrate default environmental officer password: %w", err)
 	}
 
 	// Define default environmental permit templates

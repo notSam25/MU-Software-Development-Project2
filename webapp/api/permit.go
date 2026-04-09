@@ -240,6 +240,70 @@ func SubmitPermitPayment(ctx *gin.Context) {
 	})
 }
 
+// AcknowledgePermitDecision allows a regulated entity to acknowledge an EO final decision.
+// It can be called only once and only after the latest status is Accepted or Rejected.
+func AcknowledgePermitDecision(ctx *gin.Context) {
+	// Verify the authenticated user is a regulated entity
+	reAny, _ := ctx.Get(middleware.ContextRegulatedEntityKey)
+	re, ok := reAny.(*database.RegulatedEntities)
+	if !ok || re == nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only regulated entities can acknowledge permit decisions"})
+		return
+	}
+
+	// Extract permit request ID from URL
+	requestIDRaw := ctx.Param("request_id")
+	requestID, err := strconv.ParseUint(requestIDRaw, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request id"})
+		return
+	}
+
+	// Retrieve permit request with status information
+	var permitRequest database.PermitRequest
+	if err := database.DB.Preload("Statuses").First(&permitRequest, uint(requestID)).Error; err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request reference"})
+		return
+	}
+
+	// Ensure the permit request belongs to the authenticated regulated entity
+	if permitRequest.RegulatedEntityID != re.ID {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Cannot acknowledge another regulated entity decision"})
+		return
+	}
+
+	for _, status := range permitRequest.Statuses {
+		if status.Status == database.PermitRequestStatusAcknowledged {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Decision has already been acknowledged"})
+			return
+		}
+	}
+
+	latestStatus, err := latestPermitRequestStatus(database.DB, permitRequest.ID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Permit request has no workflow status"})
+		return
+	}
+
+	if latestStatus.Status != database.PermitRequestStatusAccepted && latestStatus.Status != database.PermitRequestStatusRejected {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Decision can only be acknowledged after Accepted or Rejected"})
+		return
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		return appendPermitRequestStatus(tx, permitRequest.ID, database.PermitRequestStatusAcknowledged, "Decision acknowledged by regulated entity")
+	}); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to acknowledge decision", "details": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"message":           "Decision acknowledged successfully",
+		"permit_request_id": permitRequest.ID,
+		"status":            database.PermitRequestStatusAcknowledged,
+	})
+}
+
 // ReviewPermitPaymentSubmitted allows environmental officers to start reviewing permit requests
 // that have had their payments approved and submitted
 func ReviewPermitPaymentSubmitted(ctx *gin.Context) {

@@ -46,6 +46,14 @@ func setupTestDatabase(t *testing.T) {
 	}
 
 	database.DB = db
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access raw test database handle: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
 }
 
 // setupRouter creates and configures a Gin router for testing
@@ -67,8 +75,12 @@ func setupRouter() *gin.Engine {
 	authenticated.Use(middleware.AuthRequired())
 	{
 		authenticated.GET("/whoami", api.WhoAmI)
+		authenticated.GET("/account", api.GetAccount)
+		authenticated.PATCH("/account", api.UpdateAccount)
+		authenticated.POST("/change-password", api.ChangePassword)
 		authenticated.POST("/request-permit", api.RequestPermit)
 		authenticated.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)
+		authenticated.POST("/permit-request/:request_id/acknowledge", api.AcknowledgePermitDecision)
 		authenticated.GET("/eo/permit-requests/submitted-payment", api.ListPaymentSubmittedRequests)
 		authenticated.POST("/eo/permit-request/:request_id/start-review", api.ReviewPermitPaymentSubmitted)
 		authenticated.POST("/review-permit", api.ReviewPermit)
@@ -167,6 +179,32 @@ func TestEnvironmentalPermitsReturnsSeededTemplates(t *testing.T) {
 	}
 }
 
+func TestSeededDefaultEnvironmentalOfficerLoginUsesRubricPassword(t *testing.T) {
+	setupTestDatabase(t)
+	if err := database.SeedDefaultEntries(); err != nil {
+		t.Fatalf("failed to seed default entries: %v", err)
+	}
+	router := setupRouter()
+
+	resp := doJSONRequest(router, http.MethodPost, "/api/login", map[string]any{
+		"email":        "officer@example.com",
+		"password":     "password",
+		"account_type": middleware.AccountTypeEnvironmentalOfficer,
+	}, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected seeded environmental officer login to succeed, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode login response: %v", err)
+	}
+	token, ok := body["token"].(string)
+	if !ok || token == "" {
+		t.Fatalf("expected non-empty token in login response, got %v", body["token"])
+	}
+}
+
 func TestRegisterRegulatedEntityCreatesAccount(t *testing.T) {
 	setupTestDatabase(t)
 	router := setupRouter()
@@ -222,6 +260,194 @@ func TestWhoAmIReturnsRegulatedEntityContext(t *testing.T) {
 	}
 	if body["account_type"] != middleware.AccountTypeRegulatedEntity {
 		t.Fatalf("expected account_type %s, got %v", middleware.AccountTypeRegulatedEntity, body["account_type"])
+	}
+}
+
+func TestRegulatedEntityAccountUpdateAndFetch(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{
+		ContactPersonName:   "Jane Doe",
+		Password:            "password-123",
+		Email:               "jane@example.com",
+		OrganizationName:    "Example Org",
+		OrganizationAddress: "123 Main St",
+	}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	updateResp := doJSONRequest(router, http.MethodPatch, "/api/account", map[string]any{
+		"contact_person_name":  "Jane Updated",
+		"email":                "jane.updated@example.com",
+		"organization_name":    "Updated Org",
+		"organization_address": "456 New Ave",
+	}, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected RE account update to succeed, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	fetchResp := doJSONRequest(router, http.MethodGet, "/api/account", nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if fetchResp.Code != http.StatusOK {
+		t.Fatalf("expected RE account fetch to succeed, got %d body=%s", fetchResp.Code, fetchResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(fetchResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode account response: %v", err)
+	}
+	if body["account_type"] != middleware.AccountTypeRegulatedEntity {
+		t.Fatalf("expected account_type %s, got %v", middleware.AccountTypeRegulatedEntity, body["account_type"])
+	}
+	if body["contact_person_name"] != "Jane Updated" {
+		t.Fatalf("expected updated contact_person_name, got %v", body["contact_person_name"])
+	}
+	if body["email"] != "jane.updated@example.com" {
+		t.Fatalf("expected updated email, got %v", body["email"])
+	}
+
+	var updated database.RegulatedEntities
+	if err := database.DB.First(&updated, re.ID).Error; err != nil {
+		t.Fatalf("failed to fetch updated regulated entity from DB: %v", err)
+	}
+	if updated.OrganizationName != "Updated Org" || updated.OrganizationAddress != "456 New Ave" {
+		t.Fatalf("expected updated organization fields, got %+v", updated)
+	}
+}
+
+func TestEnvironmentalOfficerAccountUpdateAndFetch(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	eo := database.EnvironmentalOfficer{Name: "Officer Smith", Email: "eo@example.com", Password: "password-123"}
+	if err := database.DB.Create(&eo).Error; err != nil {
+		t.Fatalf("failed to seed environmental officer: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	updateResp := doJSONRequest(router, http.MethodPatch, "/api/account", map[string]any{
+		"name":  "Officer Updated",
+		"email": "eo.updated@example.com",
+	}, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected EO account update to succeed, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	fetchResp := doJSONRequest(router, http.MethodGet, "/api/account", nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if fetchResp.Code != http.StatusOK {
+		t.Fatalf("expected EO account fetch to succeed, got %d body=%s", fetchResp.Code, fetchResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(fetchResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode account response: %v", err)
+	}
+	if body["account_type"] != middleware.AccountTypeEnvironmentalOfficer {
+		t.Fatalf("expected account_type %s, got %v", middleware.AccountTypeEnvironmentalOfficer, body["account_type"])
+	}
+	if body["name"] != "Officer Updated" {
+		t.Fatalf("expected updated name, got %v", body["name"])
+	}
+	if body["email"] != "eo.updated@example.com" {
+		t.Fatalf("expected updated email, got %v", body["email"])
+	}
+}
+
+func TestRegulatedEntityChangePassword(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{
+		ContactPersonName:   "Jane Doe",
+		Password:            "password-123",
+		Email:               "jane@example.com",
+		OrganizationName:    "Example Org",
+		OrganizationAddress: "123 Main St",
+	}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	changeResp := doJSONRequest(router, http.MethodPost, "/api/change-password", map[string]any{
+		"current_password": "password-123",
+		"new_password":     "new-password-456",
+	}, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if changeResp.Code != http.StatusOK {
+		t.Fatalf("expected RE password change to succeed, got %d body=%s", changeResp.Code, changeResp.Body.String())
+	}
+
+	oldLoginResp := doJSONRequest(router, http.MethodPost, "/api/login", map[string]any{
+		"email":        "jane@example.com",
+		"password":     "password-123",
+		"account_type": middleware.AccountTypeRegulatedEntity,
+	}, nil)
+	if oldLoginResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old RE password to be rejected, got %d body=%s", oldLoginResp.Code, oldLoginResp.Body.String())
+	}
+
+	newLoginResp := doJSONRequest(router, http.MethodPost, "/api/login", map[string]any{
+		"email":        "jane@example.com",
+		"password":     "new-password-456",
+		"account_type": middleware.AccountTypeRegulatedEntity,
+	}, nil)
+	if newLoginResp.Code != http.StatusOK {
+		t.Fatalf("expected new RE password to be accepted, got %d body=%s", newLoginResp.Code, newLoginResp.Body.String())
+	}
+}
+
+func TestEnvironmentalOfficerChangePassword(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	eo := database.EnvironmentalOfficer{Name: "Officer Smith", Email: "eo@example.com", Password: "password-123"}
+	if err := database.DB.Create(&eo).Error; err != nil {
+		t.Fatalf("failed to seed environmental officer: %v", err)
+	}
+
+	token, err := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
+	if err != nil {
+		t.Fatalf("failed to generate JWT: %v", err)
+	}
+
+	changeResp := doJSONRequest(router, http.MethodPost, "/api/change-password", map[string]any{
+		"current_password": "password-123",
+		"new_password":     "new-password-456",
+	}, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if changeResp.Code != http.StatusOK {
+		t.Fatalf("expected EO password change to succeed, got %d body=%s", changeResp.Code, changeResp.Body.String())
+	}
+
+	oldLoginResp := doJSONRequest(router, http.MethodPost, "/api/login", map[string]any{
+		"email":        "eo@example.com",
+		"password":     "password-123",
+		"account_type": middleware.AccountTypeEnvironmentalOfficer,
+	}, nil)
+	if oldLoginResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old EO password to be rejected, got %d body=%s", oldLoginResp.Code, oldLoginResp.Body.String())
+	}
+
+	newLoginResp := doJSONRequest(router, http.MethodPost, "/api/login", map[string]any{
+		"email":        "eo@example.com",
+		"password":     "new-password-456",
+		"account_type": middleware.AccountTypeEnvironmentalOfficer,
+	}, nil)
+	if newLoginResp.Code != http.StatusOK {
+		t.Fatalf("expected new EO password to be accepted, got %d body=%s", newLoginResp.Code, newLoginResp.Body.String())
 	}
 }
 
@@ -1166,5 +1392,117 @@ func TestListPaymentSubmittedRequestsRejectsRegulatedEntity(t *testing.T) {
 	resp := doJSONRequest(router, http.MethodGet, "/api/eo/permit-requests/submitted-payment", nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", reToken)})
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected regulated entity to be forbidden from submitted-payment list, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAcknowledgePermitDecisionSuccessAndDuplicateGuard(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{ContactPersonName: "Jane Doe", Password: "password-123", Email: "jane@example.com", OrganizationName: "Example Org", OrganizationAddress: "123 Main St"}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+	envPermit := database.EnvironmentalPermits{PermitName: "Air Quality Permit", PermitFee: 150.25, Description: "Template permit"}
+	if err := database.DB.Create(&envPermit).Error; err != nil {
+		t.Fatalf("failed to seed environmental permit template: %v", err)
+	}
+
+	request := database.PermitRequest{RegulatedEntityID: re.ID, EnvironmentalPermitID: envPermit.ID, ActivityDescription: "Routine maintenance", PermitFee: envPermit.PermitFee}
+	if err := database.DB.Create(&request).Error; err != nil {
+		t.Fatalf("failed to seed permit request: %v", err)
+	}
+	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusAccepted, Description: "Approved"}).Error; err != nil {
+		t.Fatalf("failed to seed accepted status: %v", err)
+	}
+
+	token, _ := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+
+	ackResp := doJSONRequest(router, http.MethodPost, fmt.Sprintf("/api/permit-request/%d/acknowledge", request.ID), nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if ackResp.Code != http.StatusCreated {
+		t.Fatalf("expected acknowledge to succeed, got %d body=%s", ackResp.Code, ackResp.Body.String())
+	}
+
+	var latest database.PermitRequestStatus
+	if err := database.DB.Where("permit_request_id = ?", request.ID).Order("id desc").First(&latest).Error; err != nil {
+		t.Fatalf("failed to fetch latest status: %v", err)
+	}
+	if latest.Status != database.PermitRequestStatusAcknowledged {
+		t.Fatalf("expected latest status Acknowledged, got %s", latest.Status)
+	}
+
+	duplicateResp := doJSONRequest(router, http.MethodPost, fmt.Sprintf("/api/permit-request/%d/acknowledge", request.ID), nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if duplicateResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected duplicate acknowledge to fail, got %d body=%s", duplicateResp.Code, duplicateResp.Body.String())
+	}
+}
+
+func TestAcknowledgePermitDecisionRejectsWrongStatus(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	re := database.RegulatedEntities{ContactPersonName: "Jane Doe", Password: "password-123", Email: "jane@example.com", OrganizationName: "Example Org", OrganizationAddress: "123 Main St"}
+	if err := database.DB.Create(&re).Error; err != nil {
+		t.Fatalf("failed to seed regulated entity: %v", err)
+	}
+	envPermit := database.EnvironmentalPermits{PermitName: "Air Quality Permit", PermitFee: 150.25, Description: "Template permit"}
+	if err := database.DB.Create(&envPermit).Error; err != nil {
+		t.Fatalf("failed to seed environmental permit template: %v", err)
+	}
+
+	request := database.PermitRequest{RegulatedEntityID: re.ID, EnvironmentalPermitID: envPermit.ID, ActivityDescription: "Routine maintenance", PermitFee: envPermit.PermitFee}
+	if err := database.DB.Create(&request).Error; err != nil {
+		t.Fatalf("failed to seed permit request: %v", err)
+	}
+	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusBeingReviewed, Description: "Being reviewed"}).Error; err != nil {
+		t.Fatalf("failed to seed being reviewed status: %v", err)
+	}
+
+	token, _ := middleware.GenerateJWT(re.ID, middleware.AccountTypeRegulatedEntity)
+	resp := doJSONRequest(router, http.MethodPost, fmt.Sprintf("/api/permit-request/%d/acknowledge", request.ID), nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", token)})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected acknowledge before final decision to fail, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAcknowledgePermitDecisionRejectsNonOwnerAndEO(t *testing.T) {
+	setupTestDatabase(t)
+	router := setupRouter()
+
+	owner := database.RegulatedEntities{ContactPersonName: "Owner", Password: "password-123", Email: "owner@example.com", OrganizationName: "Owner Org", OrganizationAddress: "123 Main St"}
+	if err := database.DB.Create(&owner).Error; err != nil {
+		t.Fatalf("failed to seed owner regulated entity: %v", err)
+	}
+	other := database.RegulatedEntities{ContactPersonName: "Other", Password: "password-123", Email: "other@example.com", OrganizationName: "Other Org", OrganizationAddress: "456 Side St"}
+	if err := database.DB.Create(&other).Error; err != nil {
+		t.Fatalf("failed to seed other regulated entity: %v", err)
+	}
+	eo := database.EnvironmentalOfficer{Name: "Officer Smith", Email: "eo@example.com", Password: "password-123"}
+	if err := database.DB.Create(&eo).Error; err != nil {
+		t.Fatalf("failed to seed environmental officer: %v", err)
+	}
+	envPermit := database.EnvironmentalPermits{PermitName: "Air Quality Permit", PermitFee: 150.25, Description: "Template permit"}
+	if err := database.DB.Create(&envPermit).Error; err != nil {
+		t.Fatalf("failed to seed environmental permit template: %v", err)
+	}
+
+	request := database.PermitRequest{RegulatedEntityID: owner.ID, EnvironmentalPermitID: envPermit.ID, ActivityDescription: "Routine maintenance", PermitFee: envPermit.PermitFee}
+	if err := database.DB.Create(&request).Error; err != nil {
+		t.Fatalf("failed to seed permit request: %v", err)
+	}
+	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusRejected, Description: "Rejected"}).Error; err != nil {
+		t.Fatalf("failed to seed rejected status: %v", err)
+	}
+
+	otherToken, _ := middleware.GenerateJWT(other.ID, middleware.AccountTypeRegulatedEntity)
+	nonOwnerResp := doJSONRequest(router, http.MethodPost, fmt.Sprintf("/api/permit-request/%d/acknowledge", request.ID), nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", otherToken)})
+	if nonOwnerResp.Code != http.StatusForbidden {
+		t.Fatalf("expected non-owner acknowledge to be forbidden, got %d body=%s", nonOwnerResp.Code, nonOwnerResp.Body.String())
+	}
+
+	eoToken, _ := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
+	eoResp := doJSONRequest(router, http.MethodPost, fmt.Sprintf("/api/permit-request/%d/acknowledge", request.ID), nil, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", eoToken)})
+	if eoResp.Code != http.StatusForbidden {
+		t.Fatalf("expected EO acknowledge to be forbidden, got %d body=%s", eoResp.Code, eoResp.Body.String())
 	}
 }

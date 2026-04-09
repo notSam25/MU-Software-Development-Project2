@@ -32,7 +32,16 @@ const STATUS = {
   rejected: "Rejected",
   beingReviewed: "Being Reviewed",
   accepted: "Accepted",
+  acknowledged: "Acknowledged",
 };
+
+function normalizeFinalDecision(value) {
+  //Keep decision values constrained to explicit EO final outcomes.
+  const decision = String(value || "");
+  return decision === STATUS.accepted || decision === STATUS.rejected
+    ? decision
+    : "";
+}
 
 //Tab ids mapped to their initializer functions
 const TAB_INITIALIZERS = {
@@ -88,6 +97,7 @@ function normalizeTrackedItem(item) {
     environmentalPermitId: Number(item?.environmentalPermitId || 0),
     permitFee: Number(item?.permitFee || 0),
     status: String(item?.status || ""),
+    finalDecision: normalizeFinalDecision(item?.finalDecision),
     permitCreated: Boolean(item?.permitCreated),
     updatedAt: item?.updatedAt || "",
     notes: Array.isArray(item?.notes) ? item.notes.slice(-10) : [],
@@ -344,31 +354,127 @@ async function syncSessionFromWhoAmI() {
   return state.auth;
 }
 
-function initReAccountTab() {
+async function initReAccountTab() {
   const profile = $("#re-profile");
   const note = $("#re-account-note");
+  const accountForm = $("#re-account-form");
   if (!profile) return;
 
-  const cached = state.reProfiles[state.auth?.email || ""] || {};
-  const rows = [
-    ["Email", state.auth?.email || ""],
-    ["Account Type", "regulated_entity"],
-    ["Contact", cached.contact_person_name || "Not available from API"],
-    ["Organization", cached.organization_name || "Not available from API"],
-    ["Address", cached.organization_address || "Not available from API"],
-  ];
+  const renderAccount = (account) => {
+    const rows = [
+      ["Email", account?.email || state.auth?.email || ""],
+      ["Account Type", "regulated_entity"],
+      ["Contact", account?.contact_person_name || "n/a"],
+      ["Organization", account?.organization_name || "n/a"],
+      ["Address", account?.organization_address || "n/a"],
+    ];
 
-  profile.innerHTML = rows
-    .map(
-      ([label, value]) =>
-        `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
-    )
-    .join("");
+    profile.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
+      )
+      .join("");
 
-  if (note) {
-    note.textContent =
-      "Password updates are not exposed by the current backend API.";
+    if (accountForm) {
+      accountForm.elements.namedItem("contact_person_name").value =
+        account?.contact_person_name || "";
+      accountForm.elements.namedItem("email").value = account?.email || "";
+      accountForm.elements.namedItem("organization_name").value =
+        account?.organization_name || "";
+      accountForm.elements.namedItem("organization_address").value =
+        account?.organization_address || "";
+    }
+  };
+
+  let account;
+  try {
+    account = await apiRequest("/account");
+  } catch (error) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Unable to load account details.</p>';
+    if (note) note.textContent = "Try refreshing this tab";
+    showNotice(`Failed to load account details: ${error.message}`, "error");
+    return;
   }
+
+  if (account?.account_type !== ACCOUNT_TYPES.re) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Regulated entity account details are unavailable for this session.</p>';
+    if (note) note.textContent = "Sign in as a regulated entity";
+    return;
+  }
+
+  renderAccount(account);
+  if (note) {
+    note.textContent = "You can update profile fields and password here";
+  }
+
+  bindSubmit("#re-account-form", async (data) => {
+    const previousEmail = normalizeEmail(state.auth?.email);
+    const updated = await apiRequest("/account", {
+      method: "PATCH",
+      body: {
+        contact_person_name: data.contact_person_name,
+        email: normalizeEmail(data.email),
+        organization_name: data.organization_name,
+        organization_address: data.organization_address,
+      },
+    });
+
+    if (updated?.account_type !== ACCOUNT_TYPES.re) {
+      throw new Error("Unexpected account type in update response.");
+    }
+
+    const nextEmail = normalizeEmail(updated.email || previousEmail);
+    if (previousEmail && nextEmail && previousEmail !== nextEmail) {
+      state.trackedRequests = state.trackedRequests.map((item) =>
+        item.ownerEmail === previousEmail ? { ...item, ownerEmail: nextEmail } : item,
+      );
+      if (state.reProfiles[previousEmail] && !state.reProfiles[nextEmail]) {
+        state.reProfiles[nextEmail] = state.reProfiles[previousEmail];
+      }
+      delete state.reProfiles[previousEmail];
+    }
+
+    upsertReProfile({
+      email: nextEmail,
+      contact_person_name: updated.contact_person_name,
+      organization_name: updated.organization_name,
+      organization_address: updated.organization_address,
+    });
+
+    state.auth = {
+      ...state.auth,
+      email: nextEmail,
+    };
+    saveState();
+    renderSessionState();
+    renderAccount(updated);
+    showNotice("Regulated entity account updated.", "success");
+  });
+
+  bindSubmit("#re-password-form", async (data, form) => {
+    if (String(data.new_password || "").length < 6) {
+      showNotice("New password must be at least six characters.", "error");
+      return;
+    }
+    if (data.new_password !== data.confirm_new_password) {
+      showNotice("New password and confirmation must match.", "error");
+      return;
+    }
+
+    await apiRequest("/change-password", {
+      method: "POST",
+      body: {
+        current_password: data.current_password,
+        new_password: data.new_password,
+      },
+    });
+
+    form.reset();
+    showNotice("Password updated successfully.", "success");
+  });
 }
 
 function initRePermitTab() {
@@ -515,28 +621,167 @@ function initReAckTab() {
     "#re-ack-list",
     rows,
     "No tracked workflow updates are available.",
-    (item) =>
-      card(item.id, [
-        detail("Current status", item.status || "Unknown"),
-        detail("Latest note", latestNote(item) || "No note available"),
-      ]),
+    (item) => {
+      const finalDecision = finalDecisionFromTrackedItem(item);
+      const isAcknowledged = item?.status === STATUS.acknowledged;
+      const acknowledgementState = finalDecision
+        ? isAcknowledged
+          ? "Yes"
+          : "No"
+        : "Not yet applicable";
+      const permitIssued = finalDecision === STATUS.accepted
+        ? item?.permitCreated
+          ? "Yes"
+          : "Pending issuance"
+        : finalDecision === STATUS.rejected
+          ? "No"
+          : "Not yet decided";
+
+      const canAcknowledge =
+        item?.status === STATUS.accepted || item?.status === STATUS.rejected;
+      const footer = canAcknowledge
+        ? `<div class="mt-2"><button class="btn-secondary" type="button" data-ack-request-id="${escapeHtml(item.id)}">Acknowledge EO Decision</button></div>`
+        : "";
+
+      return card(
+        item.id,
+        [
+          detail("EO final decision", finalDecision || "Not yet decided"),
+          detail("Decision acknowledged", acknowledgementState),
+          detail("Permit issued", permitIssued),
+          detail("Current status", item.status || "Unknown"),
+          detail("Latest note", latestNote(item) || "No note available"),
+        ],
+        footer,
+      );
+    },
   );
+
+  const container = $("#re-ack-list");
+  if (!container) return;
+
+  container.onclick = async (event) => {
+    const button = event.target.closest("[data-ack-request-id]");
+    if (!button) return;
+
+    const requestId = Number(button.dataset.ackRequestId || 0);
+    if (!requestId) return;
+
+    button.disabled = true;
+    try {
+      const response = await apiRequest(`/permit-request/${requestId}/acknowledge`, {
+        method: "POST",
+      });
+
+      updateTrackedStatus(
+        requestId,
+        response.status || STATUS.acknowledged,
+        "RE acknowledged EO decision.",
+      );
+      saveState();
+      initReAckTab();
+      showNotice(`Request #${requestId} acknowledged.`, "success");
+    } catch (error) {
+      showNotice(`Acknowledge failed: ${error.message}`, "error");
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 
-function initEoAccountTab() {
+async function initEoAccountTab() {
   const profile = $("#eo-profile");
   const note = $("#eo-account-note");
+  const accountForm = $("#eo-account-form");
   if (!profile) return;
 
-  profile.innerHTML = `
-    <div><dt class="text-slate-500">Email</dt><dd>${escapeHtml(state.auth?.email || "")}</dd></div>
-    <div><dt class="text-slate-500">Account Type</dt><dd>environmental_officer</dd></div>
-  `;
+  const renderAccount = (account) => {
+    const rows = [
+      ["Email", account?.email || state.auth?.email || ""],
+      ["Account Type", "environmental_officer"],
+      ["Name", account?.name || "n/a"],
+    ];
 
-  if (note) {
-    note.textContent =
-      "Password updates are not exposed by the current backend API.";
+    profile.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
+      )
+      .join("");
+
+    if (accountForm) {
+      accountForm.elements.namedItem("name").value = account?.name || "";
+      accountForm.elements.namedItem("email").value = account?.email || "";
+    }
+  };
+
+  let account;
+  try {
+    account = await apiRequest("/account");
+  } catch (error) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Unable to load account details.</p>';
+    if (note) note.textContent = "Try refreshing this tab";
+    showNotice(`Failed to load account details: ${error.message}`, "error");
+    return;
   }
+
+  if (account?.account_type !== ACCOUNT_TYPES.eo) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Environmental officer account details are unavailable for this session.</p>';
+    if (note) note.textContent = "Sign in as an environmental officer";
+    return;
+  }
+
+  renderAccount(account);
+  if (note) {
+    note.textContent = "You can update profile fields and password here";
+  }
+
+  bindSubmit("#eo-account-form", async (data) => {
+    const updated = await apiRequest("/account", {
+      method: "PATCH",
+      body: {
+        name: data.name,
+        email: normalizeEmail(data.email),
+      },
+    });
+
+    if (updated?.account_type !== ACCOUNT_TYPES.eo) {
+      throw new Error("Unexpected account type in update response.");
+    }
+
+    state.auth = {
+      ...state.auth,
+      email: normalizeEmail(updated.email || state.auth?.email),
+    };
+    saveState();
+    renderSessionState();
+    renderAccount(updated);
+    showNotice("Environmental officer account updated.", "success");
+  });
+
+  bindSubmit("#eo-password-form", async (data, form) => {
+    if (String(data.new_password || "").length < 6) {
+      showNotice("New password must be at least six characters.", "error");
+      return;
+    }
+    if (data.new_password !== data.confirm_new_password) {
+      showNotice("New password and confirmation must match.", "error");
+      return;
+    }
+
+    await apiRequest("/change-password", {
+      method: "POST",
+      body: {
+        current_password: data.current_password,
+        new_password: data.new_password,
+      },
+    });
+
+    form.reset();
+    showNotice("Password updated successfully.", "success");
+  });
 }
 
 async function initEoReviewTab() {
@@ -591,12 +836,15 @@ function initEoIssueTab() {
     });
 
     const decision = response.decision || data.decision;
-    const tracked = findTrackedRequest(requestId);
-    if (tracked) tracked.permitCreated = decision === STATUS.accepted;
+    const tracked = ensureTrackedRequest(requestId);
+    if (tracked) {
+      tracked.permitCreated = decision === STATUS.accepted;
+      tracked.finalDecision = normalizeFinalDecision(decision);
+    }
     updateTrackedStatus(
       requestId,
       decision,
-      `EO final decision: ${data.description}`,
+      `EO final decision: ${decision}. ${data.description || "No additional note."}`,
     );
     saveState();
 
@@ -632,6 +880,7 @@ async function initEoReportTab() {
     ["Being Reviewed", countByStatus(rows, STATUS.beingReviewed)],
     ["Accepted", countByStatus(rows, STATUS.accepted)],
     ["Rejected", countByStatus(rows, STATUS.rejected)],
+    ["Acknowledged", countByStatus(rows, STATUS.acknowledged)],
     ["Live Submitted Queue", submittedQueueCount],
   ];
 
@@ -925,6 +1174,7 @@ function ensureTrackedRequest(id, ownerEmail = "") {
     environmentalPermitId: 0,
     permitFee: 0,
     status: "",
+    finalDecision: "",
     permitCreated: false,
     updatedAt: new Date().toISOString(),
     notes: [],
@@ -957,6 +1207,11 @@ function normalizeTrackedPatch(patch, fallback = {}) {
       ? permitFee
       : Number(fallback.permitFee || 0),
     status: patch?.status ?? fallback.status ?? "",
+    finalDecision: normalizeFinalDecision(
+      patch?.finalDecision !== undefined
+        ? patch.finalDecision
+        : fallback.finalDecision,
+    ),
     permitCreated:
       typeof patch?.permitCreated === "boolean"
         ? patch.permitCreated
@@ -1004,6 +1259,9 @@ function updateTrackedStatus(id, status, note) {
   if (!request) return;
 
   request.status = status;
+  if (status === STATUS.accepted || status === STATUS.rejected) {
+    request.finalDecision = status;
+  }
   request.updatedAt = new Date().toISOString();
   appendNote(request, note);
 }
@@ -1014,6 +1272,21 @@ function latestNote(item) {
     : "";
 }
 
+function finalDecisionFromTrackedItem(item) {
+  //Prefer explicitly stored final decision, then infer from current status.
+  const decision =
+    normalizeFinalDecision(item?.finalDecision) ||
+    normalizeFinalDecision(item?.status);
+  if (decision) return decision;
+
+  //For already acknowledged requests, fall back to permit creation as a signal.
+  if (item?.status === STATUS.acknowledged) {
+    return item?.permitCreated ? STATUS.accepted : STATUS.rejected;
+  }
+
+  return "";
+}
+
 function syncTrackedFromApiItems(items) {
   //Sync tracked fields from backend queue payload
   items.forEach((item) => {
@@ -1021,6 +1294,7 @@ function syncTrackedFromApiItems(items) {
     if (!id) return;
 
     const existing = findTrackedRequest(id);
+    const latestStatus = latestStatusFromApi(item) || existing?.status || "";
     upsertTrackedRequest({
       id,
       ownerEmail: existing?.ownerEmail || "",
@@ -1030,7 +1304,9 @@ function syncTrackedFromApiItems(items) {
         item.EnvironmentalPermitID || existing?.environmentalPermitId || 0,
       ),
       permitFee: Number(item.PermitFee || existing?.permitFee || 0),
-      status: latestStatusFromApi(item) || existing?.status || "",
+      status: latestStatus,
+      finalDecision:
+        normalizeFinalDecision(latestStatus) || existing?.finalDecision || "",
       permitCreated: Boolean(item.Permit) || existing?.permitCreated,
       updatedAt: new Date().toISOString(),
     });

@@ -58,11 +58,21 @@ func main() {
 			// Endpoint to retrieve information about the currently authenticated user
 			protected.GET("/whoami", api.WhoAmI)
 
+			// Endpoints for authenticated users to view and update their own account profile
+			protected.GET("/account", api.GetAccount)
+			protected.PATCH("/account", api.UpdateAccount)
+
+			// Endpoint for authenticated users to change their own account password
+			protected.POST("/change-password", api.ChangePassword)
+
 			// Endpoint for regulated entities to request a new environmental permit
 			protected.POST("/request-permit", api.RequestPermit)
 
 			// Endpoint for regulated entities to submit payment for a permit request
 			protected.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)
+
+			// Endpoint for regulated entities to acknowledge EO final decision
+			protected.POST("/permit-request/:request_id/acknowledge", api.AcknowledgePermitDecision)
 
 			// Endpoint for environmental officers to list permit requests with submitted payments
 			protected.GET("/eo/permit-requests/submitted-payment", api.ListPaymentSubmittedRequests)
