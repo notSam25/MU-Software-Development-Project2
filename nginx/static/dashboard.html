@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iPERMIT Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              gov: {
+                50: "#f4faf4",
+                100: "#e8f5e9",
+                300: "#a5d6a7",
+                600: "#2e7d32",
+                700: "#1f6a29",
+                900: "#0f3d16"
+              },
+              env: {
+                100: "#edf7ee",
+                700: "#2e7d32"
+              },
+              warn: {
+                100: "#fff4e5",
+                600: "#9a5513"
+              }
+            },
+            fontFamily: {
+              display: ["Public Sans", "sans-serif"]
+            }
+          }
+        }
+      };
+    </script>
+    <style>
+      .panel {
+        border: 1px solid rgb(226 232 240);
+        border-radius: 0.75rem;
+        background: #ffffff;
+        padding: 1.25rem;
+        box-shadow: 0 6px 16px -10px #b7d7b9;
+      }
+
+      .field {
+        width: 100%;
+        margin-top: 0.25rem;
+        border: 1px solid rgb(203 213 225);
+        border-radius: 0.375rem;
+        background: #ffffff;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: rgb(15 23 42);
+        outline: none;
+      }
+
+      .field:focus {
+        border-color: #2e7d32;
+        box-shadow: 0 0 0 2px #e8f5e9;
+      }
+
+      .btn-primary {
+        border-radius: 0.375rem;
+        border: 1px solid transparent;
+        background: #2e7d32;
+        color: #ffffff;
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        transition: background-color 0.2s ease;
+      }
+
+      .btn-primary:hover {
+        background: #1f6a29;
+      }
+
+      .btn-secondary {
+        border-radius: 0.375rem;
+        border: 1px solid rgb(203 213 225);
+        background: #ffffff;
+        color: rgb(51 65 85);
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+
+      .btn-secondary:hover {
+        background: rgb(248 250 252);
+      }
+
+      .tab-btn {
+        border-radius: 0.375rem;
+        border: 1px solid rgb(203 213 225);
+        background: #ffffff;
+        color: rgb(51 65 85);
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+      }
+
+      .tab-btn:hover {
+        background: rgb(248 250 252);
+      }
+    </style>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  </head>
+  <body class="min-h-screen bg-white font-display text-slate-900">
+    <header class="border-b border-gov-700 bg-gov-900 text-white">
+      <div class="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-10">
+        <p class="text-xs tracking-wide">Department of Environmental Quality</p>
+        <div class="flex items-center gap-3 text-xs tracking-wide">
+          <button id="account-settings-btn" class="hidden rounded-md border border-white/40 px-3 py-1 text-white hover:bg-white/10" type="button">Account</button>
+          <a href="/index.html" class="underline-offset-2 hover:underline">Home</a>
+          <a href="/login.html" class="underline-offset-2 hover:underline">Login</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
+      <section id="app-notice" class="hidden rounded-lg border px-4 py-3 text-sm" role="status" aria-live="polite"></section>
+
+      <section id="dashboard-login-required" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h1 class="text-2xl font-bold text-gov-900">Dashboard Access Required</h1>
+        <p class="mt-2 text-sm text-slate-600">Sign in from the login page to access permit operations and reports.</p>
+        <a href="/login.html" class="mt-4 inline-block rounded-md bg-gov-600 px-4 py-2 text-sm font-semibold text-white hover:bg-gov-700">Go To Login</a>
+      </section>
+
+      <section id="app-panel" class="panel mt-6 hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+          <h2 id="session-title" class="text-xl font-semibold text-gov-900"></h2>
+          <button id="logout-btn" class="btn-secondary">Logout</button>
+        </div>
+
+        <div id="tab-controls" class="mt-4 flex flex-wrap gap-2">
+          <button class="tab-btn" data-role="re" data-view="re-account" hx-get="/fragments/re-account.html" hx-target="#tab-content" hx-swap="innerHTML">Regulated Entity Account Overview</button>
+          <button class="tab-btn" data-role="re" data-view="re-permit" hx-get="/fragments/re-permit.html" hx-target="#tab-content" hx-swap="innerHTML">Permit Applications</button>
+          <button class="tab-btn" data-role="re" data-view="re-payment" hx-get="/fragments/re-payment.html" hx-target="#tab-content" hx-swap="innerHTML">Fee Payments</button>
+          <button class="tab-btn" data-role="re" data-view="re-ack" hx-get="/fragments/re-ack.html" hx-target="#tab-content" hx-swap="innerHTML">Workflow Updates</button>
+
+          <button class="tab-btn" data-role="eo" data-view="eo-account" hx-get="/fragments/eo-account.html" hx-target="#tab-content" hx-swap="innerHTML">Environmental Officer Account Overview</button>
+          <button class="tab-btn" data-role="eo" data-view="eo-review" hx-get="/fragments/eo-review.html" hx-target="#tab-content" hx-swap="innerHTML">Submitted Queue</button>
+          <button class="tab-btn" data-role="eo" data-view="eo-issue" hx-get="/fragments/eo-issue.html" hx-target="#tab-content" hx-swap="innerHTML">Final Decision</button>
+          <button class="tab-btn" data-role="eo" data-view="eo-report" hx-get="/fragments/eo-report.html" hx-target="#tab-content" hx-swap="innerHTML">Officer Report</button>
+        </div>
+
+        <div id="tab-content" class="mt-5"></div>
+      </section>
+
+      <section id="account-settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center px-4 py-8">
+        <div id="account-settings-backdrop" class="absolute inset-0 bg-slate-900/60"></div>
+        <article class="relative z-10 w-full max-w-4xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+          <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+            <h2 class="text-lg font-semibold text-gov-900">Account Settings</h2>
+            <button id="account-settings-close" class="btn-secondary" type="button">Close</button>
+          </div>
+          <div id="account-settings-content" class="mt-4"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

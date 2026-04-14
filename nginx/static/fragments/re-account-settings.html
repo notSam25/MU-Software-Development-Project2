@@ -1,0 +1,63 @@
+<section class="grid gap-4 lg:grid-cols-3">
+  <article class="rounded-lg border border-slate-200 bg-white p-4">
+    <h3 class="text-lg font-semibold text-gov-900">Regulated Entity Profile</h3>
+    <p class="mt-1 text-sm text-slate-600">Manage regulated entity account fields and password from this panel.</p>
+    <dl id="re-settings-profile" class="mt-3 space-y-2 text-sm text-slate-800"></dl>
+    <p id="re-settings-note" class="mt-3 text-sm text-slate-700"></p>
+  </article>
+
+  <article class="rounded-lg border border-slate-200 bg-white p-4 lg:col-span-2">
+    <h3 class="text-lg font-semibold text-gov-900">Update Account</h3>
+    <form id="re-settings-account-form" class="mt-3 grid gap-3 sm:grid-cols-2">
+      <label class="text-sm text-slate-700">
+        Contact Person Name
+        <input class="field" type="text" name="contact_person_name" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Email
+        <input class="field" type="email" name="email" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Organization Name
+        <input class="field" type="text" name="organization_name" required />
+      </label>
+      <label class="text-sm text-slate-700 sm:col-span-2">
+        Organization Address
+        <textarea class="field" rows="3" name="organization_address" required></textarea>
+      </label>
+      <div class="rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-600">Address Helper</p>
+        <div class="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input id="re-settings-address-search" class="field mt-0" type="text" placeholder="Search address" />
+          <button id="re-settings-address-search-btn" class="btn-secondary" type="button">Find</button>
+        </div>
+        <select id="re-settings-address-results" class="field mt-2" size="4"></select>
+        <p class="mt-1 text-xs text-slate-500">Choose a suggestion to auto-fill the organization address field.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <button class="btn-primary" type="submit">Save Account Changes</button>
+      </div>
+    </form>
+  </article>
+
+  <article class="rounded-lg border border-slate-200 bg-white p-4 lg:col-span-3">
+    <h3 class="text-lg font-semibold text-gov-900">Change Password</h3>
+    <form id="re-settings-password-form" class="mt-3 grid gap-3 sm:grid-cols-3">
+      <label class="text-sm text-slate-700">
+        Current Password
+        <input class="field" type="password" name="current_password" autocomplete="current-password" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        New Password
+        <input class="field" type="password" name="new_password" autocomplete="new-password" minlength="6" required />
+      </label>
+      <label class="text-sm text-slate-700">
+        Confirm New Password
+        <input class="field" type="password" name="confirm_new_password" autocomplete="new-password" minlength="6" required />
+      </label>
+      <div class="sm:col-span-3">
+        <button class="btn-primary" type="submit">Update Password</button>
+      </div>
+    </form>
+  </article>
+</section>
