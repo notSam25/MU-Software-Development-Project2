@@ -67,6 +67,7 @@ func main() {
 
 			// Endpoint for regulated entities to request a new environmental permit
 			protected.POST("/request-permit", api.RequestPermit)
+			protected.GET("/permit-requests", api.ListMyPermitRequests)
 
 			// Endpoint for regulated entities to submit payment for a permit request
 			protected.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)

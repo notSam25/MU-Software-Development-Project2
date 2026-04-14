@@ -45,7 +45,9 @@ func appendPermitRequestStatus(tx *gorm.DB, permitRequestID uint, status string,
 // This is used for listing permit requests in specific workflow states
 func currentPermitRequestsWithStatus(status string) ([]database.PermitRequest, error) {
 	var requests []database.PermitRequest
-	if err := database.DB.Preload("Statuses").Preload("Decision").Preload("Payment").Preload("Permit").Find(&requests).Error; err != nil {
+	if err := database.DB.Preload("RegulatedEntity").Preload("EnvironmentalPermit").Preload("Statuses", func(tx *gorm.DB) *gorm.DB {
+		return tx.Order("id asc")
+	}).Preload("Decision").Preload("Payment").Preload("Permit").Find(&requests).Error; err != nil {
 		return nil, err
 	}
 
@@ -68,10 +70,11 @@ func currentPermitRequestsWithStatus(status string) ([]database.PermitRequest, e
 	return filtered, nil
 }
 
+// allPermitRequests loads all permit requests with related entities for EO reporting/review screens.
 func allPermitRequests() ([]database.PermitRequest, error) {
 	var requests []database.PermitRequest
 	if err := database.DB.
-		Preload("Statuses").
+		Preload("Statuses", func(tx *gorm.DB) *gorm.DB { return tx.Order("id asc") }).
 		Preload("Decision").
 		Preload("Payment").
 		Preload("Permit").
@@ -85,6 +88,27 @@ func allPermitRequests() ([]database.PermitRequest, error) {
 	return requests, nil
 }
 
+// currentPermitRequestsForRegulatedEntity loads every permit request owned by the given regulated entity.
+// This powers the RE workflow tabs so they can refresh status, notes, and final decision history from the backend.
+func currentPermitRequestsForRegulatedEntity(regulatedEntityID uint) ([]database.PermitRequest, error) {
+	var requests []database.PermitRequest
+	if err := database.DB.
+		Preload("RegulatedEntity").
+		Preload("EnvironmentalPermit").
+		Preload("Statuses", func(tx *gorm.DB) *gorm.DB { return tx.Order("id asc") }).
+		Preload("Decision").
+		Preload("Payment").
+		Preload("Permit").
+		Where("regulated_entity_id = ?", regulatedEntityID).
+		Order("id desc").
+		Find(&requests).Error; err != nil {
+		return nil, err
+	}
+
+	return requests, nil
+}
+
+// latestStatusFromStatuses returns the newest workflow status string from a status list.
 func latestStatusFromStatuses(statuses []database.PermitRequestStatus) string {
 	if len(statuses) == 0 {
 		return ""
@@ -100,6 +124,7 @@ func latestStatusFromStatuses(statuses []database.PermitRequestStatus) string {
 	return latest.Status
 }
 
+// statusHistoryString returns a human-readable status chain ordered by creation.
 func statusHistoryString(statuses []database.PermitRequestStatus) string {
 	if len(statuses) == 0 {
 		return ""
@@ -580,6 +605,25 @@ func ListPaymentSubmittedRequests(ctx *gin.Context) {
 	}
 
 	// Return the list of requests
+	ctx.JSON(http.StatusOK, gin.H{"items": requests})
+}
+
+// ListMyPermitRequests returns every permit request owned by the authenticated regulated entity.
+// The frontend uses this to refresh workflow history, latest notes, and final decision states.
+func ListMyPermitRequests(ctx *gin.Context) {
+	reAny, _ := ctx.Get(middleware.ContextRegulatedEntityKey)
+	re, ok := reAny.(*database.RegulatedEntities)
+	if !ok || re == nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only regulated entities can list their permit requests"})
+		return
+	}
+
+	requests, err := currentPermitRequestsForRegulatedEntity(re.ID)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list permit requests", "details": err.Error()})
+		return
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{"items": requests})
 }
 

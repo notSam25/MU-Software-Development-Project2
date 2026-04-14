@@ -96,9 +96,36 @@ function isSupportedAccountType(accountType) {
 
 //Normalize tracked request fields before storage
 function normalizeTrackedItem(item) {
+  const ownerEmail = normalizeEmail(
+    item?.ownerEmail || item?.owner_email || item?.RegulatedEntity?.email,
+  );
+  const environmentalPermit =
+    item?.EnvironmentalPermit || item?.environmentalPermit || {};
   return {
     id: Number(item?.id || 0),
-    ownerEmail: normalizeEmail(item?.ownerEmail),
+    ownerEmail,
+    ownerName:
+      item?.ownerName ||
+      item?.owner_name ||
+      item?.RegulatedEntity?.contact_person_name ||
+      "",
+    organizationName:
+      item?.organizationName ||
+      item?.organization_name ||
+      item?.RegulatedEntity?.organization_name ||
+      "",
+    permitName:
+      item?.permitName ||
+      item?.permit_name ||
+      environmentalPermit?.PermitName ||
+      environmentalPermit?.permit_name ||
+      "",
+    permitDescription:
+      item?.permitDescription ||
+      item?.permit_description ||
+      environmentalPermit?.Description ||
+      environmentalPermit?.description ||
+      "",
     activityDescription: String(item?.activityDescription || ""),
     environmentalPermitId: Number(item?.environmentalPermitId || 0),
     permitFee: Number(item?.permitFee || 0),
@@ -666,7 +693,8 @@ async function initReAccountSettingsPanel() {
   bindPasswordChangeForm("#re-settings-password-form");
 }
 
-function initRePermitTab() {
+async function initRePermitTab() {
+  await refreshMyPermitRequests();
   //Load permit templates and submit permit requests
   void loadEnvironmentalPermits().then(() => {
     renderPermitTemplates();
@@ -722,6 +750,12 @@ function initRePermitTab() {
       ownerEmail: state.auth?.email || "",
       activityDescription: data.activity_description,
       environmentalPermitId: permitId,
+      permitName:
+        environmentalPermits.find((item) => item.id === permitId)
+          ?.permit_name || "",
+      permitDescription:
+        environmentalPermits.find((item) => item.id === permitId)
+          ?.description || "",
       permitFee: Number(response.permit_fee || 0),
       status: STATUS.pendingPayment,
       permitCreated: false,
@@ -757,7 +791,8 @@ async function loadEnvironmentalPermits() {
   }
 }
 
-function initRePaymentTab() {
+async function initRePaymentTab() {
+  await refreshMyPermitRequests();
   //Submit payment for pending permit request
   renderRePaymentSelectors();
   renderRePaymentList();
@@ -804,7 +839,8 @@ function initRePaymentTab() {
   });
 }
 
-function initReAckTab() {
+async function initReAckTab() {
+  await refreshMyPermitRequests();
   const rows = trackedRequestsForCurrentRe();
   renderList(
     "#re-ack-list",
@@ -823,6 +859,7 @@ function initReAckTab() {
       return card(
         item.id,
         [
+          detail("Owner", ownerDisplayName(item)),
           detail("EO final decision", finalDecision || "Not yet decided"),
           detail("Permit issued", permitIssued),
           detail("Current status", item.status || "Unknown"),
@@ -1098,7 +1135,7 @@ async function initEoReportTab() {
 
   if (!rows.length) {
     table.innerHTML =
-      '<tr><td class="px-2 py-2 text-slate-600" colspan="7">No tracked requests are available.</td></tr>';
+      '<tr><td class="px-2 py-2 text-slate-600" colspan="9">No tracked requests are available.</td></tr>';
     return;
   }
 
@@ -1107,7 +1144,9 @@ async function initEoReportTab() {
       (item) => `
         <tr class="text-slate-800">
           <td class="px-2 py-2 font-mono text-xs">${escapeHtml(item.id)}</td>
-          <td class="px-2 py-2">${escapeHtml(item.ownerEmail || "unknown")}</td>
+          <td class="px-2 py-2">${escapeHtml(ownerDisplayName(item))}</td>
+          <td class="px-2 py-2">${escapeHtml(item.ownerEmail || item?.RegulatedEntity?.email || "unknown")}</td>
+          <td class="px-2 py-2">${escapeHtml(permitTypeDisplay(item))}</td>
           <td class="px-2 py-2">${escapeHtml(item.activityDescription || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.environmentalPermitId || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.status || "Unknown")}</td>
@@ -1138,6 +1177,8 @@ async function refreshEoSubmittedQueue() {
         const status = latestStatusFromApi(item) || STATUS.submitted;
         return card(id, [
           detail("Status", status),
+          detail("Permit Type", permitTypeDisplay(item)),
+          detail("Permit Fee", money(item.PermitFee || item.permitFee || 0)),
           detail("Regulated Entity ID", item.RegulatedEntityID || "n/a"),
         ]);
       },
@@ -1247,7 +1288,12 @@ function renderKnownBeingReviewed() {
     "No tracked requests are currently in Being Reviewed.",
     (item) =>
       card(item.id, [
-        detail("Owner", item.ownerEmail || "unknown"),
+        detail("Owner", ownerDisplayName(item)),
+        detail(
+          "Owner Email",
+          item.ownerEmail || item?.RegulatedEntity?.email || "unknown",
+        ),
+        detail("Permit Type", permitTypeDisplay(item)),
         detail("Activity", item.activityDescription || "n/a"),
       ]),
   );
@@ -1334,6 +1380,90 @@ function detail(label, value) {
   return `<p><span class="text-slate-600">${escapeHtml(label)}:</span> ${escapeHtml(value)}</p>`;
 }
 
+function cacheReProfileFromApiItem(item) {
+  const regulatedEntity =
+    item?.RegulatedEntity ||
+    item?.regulatedEntity ||
+    item?.regulated_entity ||
+    {};
+  const email = normalizeEmail(
+    regulatedEntity?.email || item?.ownerEmail || item?.owner_email,
+  );
+  if (!email) return;
+
+  state.reProfiles[email] = {
+    email,
+    contact_person_name:
+      regulatedEntity?.contact_person_name ||
+      item?.ownerName ||
+      item?.owner_name ||
+      "",
+    organization_name:
+      regulatedEntity?.organization_name ||
+      item?.organizationName ||
+      item?.organization_name ||
+      "",
+    organization_address:
+      regulatedEntity?.organization_address ||
+      item?.organizationAddress ||
+      item?.organization_address ||
+      "",
+  };
+}
+
+function ownerDisplayName(item) {
+  const email = normalizeEmail(
+    item?.ownerEmail || item?.owner_email || item?.RegulatedEntity?.email,
+  );
+  const profile = state.reProfiles[email] || {};
+  const name =
+    item?.ownerName ||
+    item?.owner_name ||
+    item?.RegulatedEntity?.contact_person_name ||
+    profile.contact_person_name ||
+    "";
+
+  if (name && email) return `${name} <${email}>`;
+  return name || email || "unknown";
+}
+
+function permitTypeDisplay(item) {
+  const name =
+    item?.permitName ||
+    item?.permit_name ||
+    item?.EnvironmentalPermit?.PermitName ||
+    item?.EnvironmentalPermit?.permit_name ||
+    "";
+  const description =
+    item?.permitDescription ||
+    item?.permit_description ||
+    item?.EnvironmentalPermit?.Description ||
+    item?.EnvironmentalPermit?.description ||
+    "";
+
+  if (name && description) return `${name} — ${description}`;
+  if (name) return name;
+  if (description) return description;
+  return `Permit #${item?.environmentalPermitId || "n/a"}`;
+}
+
+function workflowNotesFromApiItem(item) {
+  const statuses = Array.isArray(item?.Statuses) ? item.Statuses : [];
+  if (!statuses.length) return [];
+
+  return statuses
+    .slice()
+    .sort((a, b) => Number(a?.ID || 0) - Number(b?.ID || 0))
+    .map((status) => {
+      const statusLabel = String(status?.Status || "").trim();
+      const description = String(status?.Description || "").trim();
+      if (!statusLabel && !description) return "";
+      return description ? `${statusLabel}: ${description}` : statusLabel;
+    })
+    .filter(Boolean)
+    .slice(-10);
+}
+
 //Cache profile fields from registration data
 function upsertReProfile(profile) {
   const email = normalizeEmail(profile.email);
@@ -1374,8 +1504,12 @@ function ensureTrackedRequest(id, ownerEmail = "") {
   const created = {
     id: numericId,
     ownerEmail: normalizeEmail(ownerEmail),
+    ownerName: "",
+    organizationName: "",
     activityDescription: "",
     environmentalPermitId: 0,
+    permitName: "",
+    permitDescription: "",
     permitFee: 0,
     status: "",
     finalDecision: "",
@@ -1399,6 +1533,12 @@ function normalizeTrackedPatch(patch, fallback = {}) {
       patch?.ownerEmail !== undefined
         ? normalizeEmail(patch.ownerEmail)
         : normalizeEmail(fallback.ownerEmail),
+    ownerName: patch?.ownerName ?? fallback.ownerName ?? "",
+    organizationName:
+      patch?.organizationName ?? fallback.organizationName ?? "",
+    permitName: patch?.permitName ?? fallback.permitName ?? "",
+    permitDescription:
+      patch?.permitDescription ?? fallback.permitDescription ?? "",
     activityDescription:
       patch?.activityDescription ?? fallback.activityDescription ?? "",
     environmentalPermitId:
@@ -1471,9 +1611,12 @@ function updateTrackedStatus(id, status, note) {
 }
 
 function latestNote(item) {
-  return Array.isArray(item?.notes) && item.notes.length
-    ? item.notes[item.notes.length - 1]
-    : "";
+  if (Array.isArray(item?.notes) && item.notes.length) {
+    return item.notes[item.notes.length - 1];
+  }
+
+  const workflowNotes = workflowNotesFromApiItem(item);
+  return workflowNotes.length ? workflowNotes[workflowNotes.length - 1] : "";
 }
 
 function finalDecisionFromTrackedItem(item) {
@@ -1491,9 +1634,44 @@ function syncTrackedFromApiItems(items) {
 
     const existing = findTrackedRequest(id);
     const latestStatus = latestStatusFromApi(item) || existing?.status || "";
+    const notes = workflowNotesFromApiItem(item);
+    cacheReProfileFromApiItem(item);
+    const environmentalPermit =
+      item?.EnvironmentalPermit || item?.environmentalPermit || {};
     upsertTrackedRequest({
       id,
-      ownerEmail: existing?.ownerEmail || "",
+      ownerEmail:
+        normalizeEmail(
+          item?.ownerEmail || item?.owner_email || item?.RegulatedEntity?.email,
+        ) ||
+        existing?.ownerEmail ||
+        "",
+      ownerName:
+        item?.ownerName ||
+        item?.owner_name ||
+        item?.RegulatedEntity?.contact_person_name ||
+        existing?.ownerName ||
+        "",
+      organizationName:
+        item?.organizationName ||
+        item?.organization_name ||
+        item?.RegulatedEntity?.organization_name ||
+        existing?.organizationName ||
+        "",
+      permitName:
+        item?.permitName ||
+        item?.permit_name ||
+        environmentalPermit?.PermitName ||
+        environmentalPermit?.permit_name ||
+        existing?.permitName ||
+        "",
+      permitDescription:
+        item?.permitDescription ||
+        item?.permit_description ||
+        environmentalPermit?.Description ||
+        environmentalPermit?.description ||
+        existing?.permitDescription ||
+        "",
       activityDescription:
         item.ActivityDescription || existing?.activityDescription || "",
       environmentalPermitId: Number(
@@ -1504,9 +1682,18 @@ function syncTrackedFromApiItems(items) {
       finalDecision:
         normalizeFinalDecision(latestStatus) || existing?.finalDecision || "",
       permitCreated: Boolean(item.Permit) || existing?.permitCreated,
+      notes: notes.length ? notes : existing?.notes || [],
       updatedAt: new Date().toISOString(),
     });
   });
+}
+
+async function refreshMyPermitRequests() {
+  const payload = await apiRequest("/permit-requests");
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  syncTrackedFromApiItems(items);
+  saveState();
+  return items;
 }
 
 function requestIdFromApi(item) {
