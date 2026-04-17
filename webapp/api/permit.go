@@ -163,6 +163,7 @@ func RequestPermit(ctx *gin.Context) {
 	// All fields are required for creating a valid permit request
 	type requestPermitBody struct {
 		ActivityDescription   string        `json:"activity_description" binding:"required"`
+		ActivitySite          string        `json:"activity_site" binding:"required"`
 		ActivityStartDate     time.Time     `json:"activity_start_date" binding:"required"`
 		ActivityDuration      time.Duration `json:"activity_duration" binding:"required"`
 		EnvironmentalPermitID uint          `json:"environmental_permit_id" binding:"required"`
@@ -192,6 +193,7 @@ func RequestPermit(ctx *gin.Context) {
 		RegulatedEntityID:     re.ID,
 		EnvironmentalPermitID: envPermit.ID,
 		ActivityDescription:   payload.ActivityDescription,
+		ActivitySite:          payload.ActivitySite,
 		ActivityStartDate:     payload.ActivityStartDate,
 		ActivityDuration:      payload.ActivityDuration,
 		PermitFee:             envPermit.PermitFee,
@@ -422,10 +424,12 @@ func ExportPermitRequestsCSV(ctx *gin.Context) {
 		"permit_template_id",
 		"permit_template_name",
 		"activity_description",
+		"activity_site",
 		"permit_fee",
 		"latest_status",
 		"status_history",
 		"final_decision",
+		"final_decision_description",
 		"permit_issued",
 		"payment_approved",
 		"created_at",
@@ -446,8 +450,10 @@ func ExportPermitRequestsCSV(ctx *gin.Context) {
 		}
 
 		decision := ""
+		decisionDescription := ""
 		if request.Decision != nil {
 			decision = request.Decision.Decision
+			decisionDescription = request.Decision.Description
 		}
 
 		permitIssued := "No"
@@ -467,10 +473,12 @@ func ExportPermitRequestsCSV(ctx *gin.Context) {
 			fmt.Sprintf("%d", request.EnvironmentalPermitID),
 			permitName,
 			request.ActivityDescription,
+			request.ActivitySite,
 			fmt.Sprintf("%.2f", request.PermitFee),
 			latestStatusFromStatuses(request.Statuses),
 			statusHistoryString(request.Statuses),
 			decision,
+			decisionDescription,
 			permitIssued,
 			paymentApproved,
 			request.CreatedAt.UTC().Format(time.RFC3339),

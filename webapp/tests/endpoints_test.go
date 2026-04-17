@@ -487,6 +487,7 @@ func TestRequestPermitCreatesPendingPaymentStatus(t *testing.T) {
 	// Make POST request to create a permit request
 	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", map[string]any{
 		"activity_description":    "Routine maintenance",
+		"activity_site":           "100 Test Worksite Ave",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
 		"environmental_permit_id": envPermit.ID,
@@ -988,6 +989,7 @@ func TestPermitWorkflowSequentialValidation(t *testing.T) {
 
 	requestResp := doJSONRequest(router, http.MethodPost, "/api/request-permit", map[string]any{
 		"activity_description":    "Routine maintenance",
+		"activity_site":           "200 Workflow Road",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
 		"environmental_permit_id": envPermit.ID,
@@ -1215,6 +1217,7 @@ func TestRequestPermitRejectsInvalidPermitReference(t *testing.T) {
 
 	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", map[string]any{
 		"activity_description":    "Routine maintenance",
+		"activity_site":           "300 Invalid Permit Site",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
 		"environmental_permit_id": 99999,
@@ -1236,6 +1239,7 @@ func TestRequestPermitRejectsEnvironmentalOfficer(t *testing.T) {
 
 	resp := doJSONRequest(router, http.MethodPost, "/api/request-permit", map[string]any{
 		"activity_description":    "Routine maintenance",
+		"activity_site":           "400 EO Worksite",
 		"activity_start_date":     "2026-03-28T20:00:00Z",
 		"activity_duration":       3600000000000,
 		"environmental_permit_id": 1,
@@ -1498,12 +1502,18 @@ func TestExportPermitRequestsCSVReturnsDataForEO(t *testing.T) {
 		t.Fatalf("failed to seed environmental permit template: %v", err)
 	}
 
-	request := database.PermitRequest{RegulatedEntityID: re.ID, EnvironmentalPermitID: envPermit.ID, ActivityDescription: "Routine maintenance", PermitFee: envPermit.PermitFee}
+	request := database.PermitRequest{RegulatedEntityID: re.ID, EnvironmentalPermitID: envPermit.ID, ActivityDescription: "Routine maintenance", ActivitySite: "500 CSV Worksite", PermitFee: envPermit.PermitFee}
 	if err := database.DB.Create(&request).Error; err != nil {
 		t.Fatalf("failed to seed permit request: %v", err)
 	}
-	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusSubmitted, Description: "Submitted"}).Error; err != nil {
-		t.Fatalf("failed to seed submitted status: %v", err)
+	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusBeingReviewed, Description: "Being reviewed by EO"}).Error; err != nil {
+		t.Fatalf("failed to seed being reviewed status: %v", err)
+	}
+	if err := database.DB.Create(&database.PermitRequestDecision{PermitRequestID: request.ID, Decision: database.PermitRequestStatusAccepted, Description: "Application approved after technical review"}).Error; err != nil {
+		t.Fatalf("failed to seed final decision: %v", err)
+	}
+	if err := database.DB.Create(&database.PermitRequestStatus{PermitRequestID: request.ID, Status: database.PermitRequestStatusAccepted, Description: "Application approved after technical review"}).Error; err != nil {
+		t.Fatalf("failed to seed accepted status: %v", err)
 	}
 
 	eoToken, _ := middleware.GenerateJWT(eo.ID, middleware.AccountTypeEnvironmentalOfficer)
@@ -1519,7 +1529,13 @@ func TestExportPermitRequestsCSVReturnsDataForEO(t *testing.T) {
 	if !strings.Contains(body, "request_id") {
 		t.Fatalf("expected CSV header to include request_id, got %s", body)
 	}
+	if !strings.Contains(body, "final_decision_description") {
+		t.Fatalf("expected CSV header to include final_decision_description, got %s", body)
+	}
 	if !strings.Contains(body, "Routine maintenance") {
 		t.Fatalf("expected CSV row with activity description, got %s", body)
+	}
+	if !strings.Contains(body, "Application approved after technical review") {
+		t.Fatalf("expected CSV row to include final decision notes, got %s", body)
 	}
 }

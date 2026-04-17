@@ -46,7 +46,7 @@
           permit application submission, fee payment, review, final decisions, permit issuance, and reporting.
         </p>
         <div class="mt-5 flex flex-wrap gap-3">
-          <a href="/login.html" class="rounded-md bg-gov-600 px-4 py-2 text-sm font-semibold text-white hover:bg-gov-700">Go To Login</a>
+          <a id="home-auth-cta" href="/login.html" class="rounded-md bg-gov-600 px-4 py-2 text-sm font-semibold text-white hover:bg-gov-700">Go To Login</a>
           <a href="/dashboard.html" class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open Dashboard</a>
         </div>
       </section>
@@ -66,5 +66,34 @@
         </article>
       </section>
     </main>
+
+    <script>
+      (() => {
+        //Mirror dashboard session key so home CTA can enforce explicit logout.
+        const storageKey = "group9_iPERMITAPP_state_v2";
+        const authCta = document.getElementById("home-auth-cta");
+        if (!authCta) return;
+
+        let sessionState;
+        try {
+          sessionState = JSON.parse(localStorage.getItem(storageKey) || "null");
+        } catch {
+          return;
+        }
+
+        if (!sessionState?.auth?.token) return;
+
+        authCta.textContent = "Logout";
+        authCta.setAttribute("href", "#");
+        authCta.addEventListener("click", (event) => {
+          event.preventDefault();
+
+          //Preserve cached state but clear auth to force re-login for account switching.
+          sessionState.auth = null;
+          localStorage.setItem(storageKey, JSON.stringify(sessionState));
+          window.location.reload();
+        });
+      })();
+    </script>
   </body>
 </html>

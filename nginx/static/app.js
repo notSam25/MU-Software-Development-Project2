@@ -126,11 +126,26 @@ function normalizeTrackedItem(item) {
       environmentalPermit?.Description ||
       environmentalPermit?.description ||
       "",
-    activityDescription: String(item?.activityDescription || ""),
+    activityDescription: String(
+      item?.activityDescription || item?.ActivityDescription || "",
+    ),
+    activitySite: String(item?.activitySite || item?.ActivitySite || ""),
+    activityStartDate: String(
+      item?.activityStartDate || item?.ActivityStartDate || "",
+    ),
+    activityDuration: Number(
+      item?.activityDuration || item?.ActivityDuration || 0,
+    ),
     environmentalPermitId: Number(item?.environmentalPermitId || 0),
     permitFee: Number(item?.permitFee || 0),
     status: String(item?.status || ""),
     finalDecision: normalizeFinalDecision(item?.finalDecision),
+    finalDecisionDescription: String(
+      item?.finalDecisionDescription ||
+        item?.final_decision_description ||
+        item?.Decision?.Description ||
+        "",
+    ),
     permitCreated: Boolean(item?.permitCreated),
     updatedAt: item?.updatedAt || "",
     notes: Array.isArray(item?.notes) ? item.notes.slice(-10) : [],
@@ -198,13 +213,37 @@ function bindLoginRoleBehavior() {
   setRoleMode();
 }
 
+//End the active session and refresh role-scoped UI state.
+function endSession(message = "Session ended.") {
+  closeAccountSettings();
+  clearAuth();
+  renderSessionState();
+  showNotice(message, "info");
+}
+
 function bindSessionControls() {
-  $("#logout-btn")?.addEventListener("click", () => {
-    closeAccountSettings();
-    clearAuth();
-    renderSessionState();
-    showNotice("Session ended.", "info");
-  });
+  $("#logout-btn")?.addEventListener("click", () => endSession());
+
+  const topAuthLink = $("#top-auth-link");
+  if (topAuthLink && topAuthLink.dataset.bound !== "true") {
+    topAuthLink.dataset.bound = "true";
+    topAuthLink.addEventListener("click", (event) => {
+      //Allow normal navigation to login page when no session exists.
+      if (!state.auth?.token) return;
+
+      event.preventDefault();
+      endSession("Session ended. Sign in to switch accounts.");
+    });
+  }
+}
+
+function renderTopAuthLink() {
+  const topAuthLink = $("#top-auth-link");
+  if (!topAuthLink) return;
+
+  const hasSession = Boolean(state.auth?.token);
+  topAuthLink.textContent = hasSession ? "Logout" : "Login";
+  topAuthLink.setAttribute("href", hasSession ? "#" : "/login.html");
 }
 
 function bindAccountSettingsControls() {
@@ -346,6 +385,18 @@ async function onLogin(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = toFormData(form);
+
+  if (state.auth?.token) {
+    showNotice(
+      "You are already signed in. Logout from the dashboard top bar before switching accounts.",
+      "info",
+    );
+    if (!window.location.pathname.endsWith("/dashboard.html")) {
+      window.location.assign("/dashboard.html");
+    }
+    return;
+  }
+
   const accountType = ACCOUNT_TYPES[data.role];
 
   if (!accountType) {
@@ -420,6 +471,9 @@ function renderSessionState() {
   const content = $("#tab-content");
   const loginRequired = $("#dashboard-login-required");
   const accountSettingsButton = $("#account-settings-btn");
+
+  renderTopAuthLink();
+
   if (!panel || !sessionTitle || !content) return;
 
   if (!state.auth?.token) {
@@ -707,6 +761,9 @@ async function initRePermitTab() {
     );
     const durationHours = Number(data.activity_duration_hours);
     const startDateIso = toDateOnlyISO(data.activity_start_date);
+    const activityDurationNs = Math.round(
+      durationHours * 60 * 60 * 1000000000,
+    );
 
     if (!permitId) {
       showNotice("Provide a valid environmental permit ID.", "error");
@@ -728,9 +785,10 @@ async function initRePermitTab() {
       method: "POST",
       body: {
         activity_description: data.activity_description,
+        activity_site: data.activity_site,
         activity_start_date: startDateIso,
         //Convert hours to nanoseconds for backend duration format
-        activity_duration: Math.round(durationHours * 60 * 60 * 1000000000),
+        activity_duration: activityDurationNs,
         environmental_permit_id: permitId,
       },
     });
@@ -749,6 +807,9 @@ async function initRePermitTab() {
       id: requestId,
       ownerEmail: state.auth?.email || "",
       activityDescription: data.activity_description,
+      activitySite: data.activity_site,
+      activityStartDate: startDateIso,
+      activityDuration: activityDurationNs,
       environmentalPermitId: permitId,
       permitName:
         environmentalPermits.find((item) => item.id === permitId)
@@ -1074,6 +1135,7 @@ async function initEoIssueTab() {
     if (tracked) {
       tracked.permitCreated = decision === STATUS.accepted;
       tracked.finalDecision = normalizeFinalDecision(decision);
+      tracked.finalDecisionDescription = data.description || "";
     }
     updateTrackedStatus(
       requestId,
@@ -1133,9 +1195,12 @@ async function initEoReportTab() {
   const table = $("#eo-report-table");
   if (!table) return;
 
+  //Always bind export actions so PDF/CSV buttons work even when no rows are present.
+  bindEoReportExports();
+
   if (!rows.length) {
     table.innerHTML =
-      '<tr><td class="px-2 py-2 text-slate-600" colspan="9">No tracked requests are available.</td></tr>';
+      '<tr><td class="px-2 py-2 text-slate-600" colspan="11">No tracked requests are available.</td></tr>';
     return;
   }
 
@@ -1150,14 +1215,14 @@ async function initEoReportTab() {
           <td class="px-2 py-2">${escapeHtml(item.activityDescription || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.environmentalPermitId || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.status || "Unknown")}</td>
+          <td class="px-2 py-2">${escapeHtml(item.finalDecision || "Not decided")}</td>
+          <td class="px-2 py-2">${escapeHtml(item.finalDecisionDescription || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.permitCreated ? "Created" : "Not created")}</td>
           <td class="px-2 py-2">${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "n/a")}</td>
         </tr>
       `,
     )
     .join("");
-
-  bindEoReportExports(rows);
 }
 
 async function refreshEoSubmittedQueue() {
@@ -1247,6 +1312,7 @@ function renderRePermitList() {
         detail("Permit Template ID", item.environmentalPermitId || "n/a"),
         detail("Permit Fee", money(item.permitFee || 0)),
         detail("Activity", item.activityDescription || "n/a"),
+        detail("Activity Site", item.activitySite || "n/a"),
       ]),
   );
 }
@@ -1293,8 +1359,11 @@ function renderKnownBeingReviewed() {
           "Owner Email",
           item.ownerEmail || item?.RegulatedEntity?.email || "unknown",
         ),
-        detail("Permit Type", permitTypeDisplay(item)),
-        detail("Activity", item.activityDescription || "n/a"),
+        detail("Activity Description", item.activityDescription || "n/a"),
+        detail("Activity Start Date", formatActivityStartDate(item.activityStartDate)),
+        detail("Activity Duration", formatActivityDuration(item.activityDuration)),
+        detail("Permit Fee", money(item.permitFee || 0)),
+        detail("Activity Site", item.activitySite || "n/a"),
       ]),
   );
 }
@@ -1311,9 +1380,13 @@ function renderEoAllPermitRequests(items) {
         detail("Status history", statusHistoryFromApi(item) || "No status history"),
         detail("Regulated Entity ID", item.RegulatedEntityID || "n/a"),
         detail("Activity", item.ActivityDescription || "n/a"),
+        detail("Activity Site", item.ActivitySite || "n/a"),
+        detail("Activity Start Date", formatActivityStartDate(item.ActivityStartDate)),
+        detail("Activity Duration", formatActivityDuration(item.ActivityDuration)),
         detail("Permit Template ID", item.EnvironmentalPermitID || "n/a"),
         detail("Permit Fee", money(item.PermitFee || 0)),
         detail("Final decision", item?.Decision?.Decision || "Not decided"),
+        detail("Decision notes", item?.Decision?.Description || "n/a"),
       ]);
     },
   );
@@ -1507,12 +1580,16 @@ function ensureTrackedRequest(id, ownerEmail = "") {
     ownerName: "",
     organizationName: "",
     activityDescription: "",
+    activitySite: "",
+    activityStartDate: "",
+    activityDuration: 0,
     environmentalPermitId: 0,
     permitName: "",
     permitDescription: "",
     permitFee: 0,
     status: "",
     finalDecision: "",
+    finalDecisionDescription: "",
     permitCreated: false,
     updatedAt: new Date().toISOString(),
     notes: [],
@@ -1541,6 +1618,12 @@ function normalizeTrackedPatch(patch, fallback = {}) {
       patch?.permitDescription ?? fallback.permitDescription ?? "",
     activityDescription:
       patch?.activityDescription ?? fallback.activityDescription ?? "",
+    activitySite: patch?.activitySite ?? fallback.activitySite ?? "",
+    activityStartDate:
+      patch?.activityStartDate ?? fallback.activityStartDate ?? "",
+    activityDuration: Number(
+      patch?.activityDuration ?? fallback.activityDuration ?? 0,
+    ),
     environmentalPermitId:
       environmentPermitId !== undefined &&
       environmentPermitId !== null &&
@@ -1556,6 +1639,8 @@ function normalizeTrackedPatch(patch, fallback = {}) {
         ? patch.finalDecision
         : fallback.finalDecision,
     ),
+    finalDecisionDescription:
+      patch?.finalDecisionDescription ?? fallback.finalDecisionDescription ?? "",
     permitCreated:
       typeof patch?.permitCreated === "boolean"
         ? patch.permitCreated
@@ -1674,13 +1759,27 @@ function syncTrackedFromApiItems(items) {
         "",
       activityDescription:
         item.ActivityDescription || existing?.activityDescription || "",
+      activitySite: item.ActivitySite || existing?.activitySite || "",
+      activityStartDate:
+        item.ActivityStartDate || existing?.activityStartDate || "",
+      activityDuration: Number(
+        item.ActivityDuration || existing?.activityDuration || 0,
+      ),
       environmentalPermitId: Number(
         item.EnvironmentalPermitID || existing?.environmentalPermitId || 0,
       ),
       permitFee: Number(item.PermitFee || existing?.permitFee || 0),
       status: latestStatus,
       finalDecision:
-        normalizeFinalDecision(latestStatus) || existing?.finalDecision || "",
+        normalizeFinalDecision(item?.Decision?.Decision) ||
+        normalizeFinalDecision(latestStatus) ||
+        existing?.finalDecision ||
+        "",
+      finalDecisionDescription:
+        item?.Decision?.Description ||
+        latestStatusDescriptionFromApi(item) ||
+        existing?.finalDecisionDescription ||
+        "",
       permitCreated: Boolean(item.Permit) || existing?.permitCreated,
       notes: notes.length ? notes : existing?.notes || [],
       updatedAt: new Date().toISOString(),
@@ -1709,6 +1808,16 @@ function latestStatusFromApi(item) {
     Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max,
   );
   return latest?.Status || "";
+}
+
+function latestStatusDescriptionFromApi(item) {
+  const statuses = Array.isArray(item?.Statuses) ? item.Statuses : [];
+  if (!statuses.length) return "";
+
+  const latest = statuses.reduce((max, current) =>
+    Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max,
+  );
+  return latest?.Description || "";
 }
 
 function statusHistoryFromApi(item) {
@@ -1790,7 +1899,7 @@ async function downloadAuthorizedFile(path, fallbackFilename) {
   URL.revokeObjectURL(href);
 }
 
-function bindEoReportExports(rows) {
+function bindEoReportExports() {
   const exportCsv = $("#eo-export-csv");
   const exportPdf = $("#eo-export-pdf");
 
@@ -1812,31 +1921,42 @@ function bindEoReportExports(rows) {
   if (exportPdf && exportPdf.dataset.bound !== "true") {
     exportPdf.dataset.bound = "true";
     exportPdf.addEventListener("click", () => {
+      const printableRows = sortedTrackedRequests();
       const printWindow = window.open(
-        "",
-        "eo-report-print",
-        "noopener,noreferrer,width=1100,height=800",
+        "about:blank",
+        "_blank",
+        "width=1100,height=800",
       );
       if (!printWindow) {
         showNotice("Allow popups to export the report as PDF.", "error");
         return;
       }
 
-      const tableRows = rows
+      const tableRows = printableRows
         .map(
           (item) => `
             <tr>
               <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(ownerDisplayName(item))}</td>
               <td>${escapeHtml(item.ownerEmail || "unknown")}</td>
+              <td>${escapeHtml(permitTypeDisplay(item))}</td>
               <td>${escapeHtml(item.activityDescription || "n/a")}</td>
               <td>${escapeHtml(item.environmentalPermitId || "n/a")}</td>
               <td>${escapeHtml(item.status || "Unknown")}</td>
+              <td>${escapeHtml(item.finalDecision || "Not decided")}</td>
+              <td>${escapeHtml(item.finalDecisionDescription || "n/a")}</td>
               <td>${escapeHtml(item.permitCreated ? "Created" : "Not created")}</td>
               <td>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "n/a")}</td>
             </tr>
           `,
         )
         .join("");
+
+      const tableBody =
+        tableRows ||
+        '<tr><td colspan="11">No tracked requests are available.</td></tr>';
+
+      const generatedAt = escapeHtml(new Date().toLocaleString());
 
       printWindow.document.open();
       printWindow.document.write(`
@@ -1849,34 +1969,63 @@ function bindEoReportExports(rows) {
               body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
               h1 { margin: 0 0 8px 0; }
               p { margin: 0 0 16px 0; color: #4b5563; }
+              .print-actions { margin: 0 0 12px 0; }
+              .print-btn { border: 1px solid #94a3b8; background: #f8fafc; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
               table { border-collapse: collapse; width: 100%; }
               th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
               th { background: #f8fafc; }
+              @media print {
+                .print-actions { display: none; }
+              }
             </style>
           </head>
           <body>
             <h1>Environmental Officer Workflow Report</h1>
-            <p>Generated ${escapeHtml(new Date().toLocaleString())}</p>
+            <p>Generated ${generatedAt}</p>
+            <div class="print-actions">
+              <button class="print-btn" type="button" onclick="window.print()">Print / Save as PDF</button>
+            </div>
             <table>
               <thead>
                 <tr>
                   <th>Request #</th>
+                  <th>Owner</th>
                   <th>Owner Email</th>
+                  <th>Permit Type</th>
                   <th>Activity</th>
                   <th>Permit Template ID</th>
                   <th>Status</th>
+                  <th>Final Decision</th>
+                  <th>Decision Notes</th>
                   <th>Permit Record</th>
                   <th>Updated</th>
                 </tr>
               </thead>
-              <tbody>${tableRows}</tbody>
+              <tbody>${tableBody}</tbody>
             </table>
           </body>
         </html>
       `);
       printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
+
+      //Use both load and timeout triggers to handle browser-specific print timing.
+      let hasPrinted = false;
+      const triggerPrint = () => {
+        if (hasPrinted || printWindow.closed) return;
+        hasPrinted = true;
+        printWindow.focus();
+        printWindow.print();
+      };
+
+      printWindow.addEventListener(
+        "load",
+        () => {
+          setTimeout(triggerPrint, 200);
+        },
+        { once: true },
+      );
+
+      setTimeout(triggerPrint, 900);
     });
   }
 }
@@ -1970,6 +2119,45 @@ function toDateOnlyISO(value) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function formatActivityStartDate(value) {
+  if (!value) return "n/a";
+
+  //Keep date-only values stable across timezones and very old years.
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${month}/${day}/${year}`;
+  }
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return date.toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatActivityDuration(value) {
+  const nanoseconds = Number(value || 0);
+  if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return "n/a";
+
+  const hours = nanoseconds / 3600000000000;
+  if (hours >= 1) {
+    const rounded = Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(2);
+    return `${rounded} hour${Number(rounded) === 1 ? "" : "s"}`;
+  }
+
+  const minutes = nanoseconds / 60000000000;
+  const roundedMinutes = Number.isInteger(minutes)
+    ? minutes.toFixed(0)
+    : minutes.toFixed(1);
+  return `${roundedMinutes} minute${Number(roundedMinutes) === 1 ? "" : "s"}`;
 }
 
 function showNotice(message, level = "info") {
