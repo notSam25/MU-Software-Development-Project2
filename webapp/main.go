@@ -72,8 +72,11 @@ func main() {
 			// Endpoint for regulated entities to submit payment for a permit request
 			protected.POST("/permit-request/:request_id/submit_payment", api.SubmitPermitPayment)
 
-			// Endpoint for regulated entities to acknowledge EO final decision
-			protected.POST("/permit-request/:request_id/acknowledge", api.AcknowledgePermitDecision)
+			// Endpoint for environmental officers to list all permit requests and statuses
+			protected.GET("/eo/permit-requests", api.ListAllPermitRequests)
+
+			// Endpoint for environmental officers to export permit request data as CSV
+			protected.GET("/eo/permit-requests/export.csv", api.ExportPermitRequestsCSV)
 
 			// Endpoint for environmental officers to list permit requests with submitted payments
 			protected.GET("/eo/permit-requests/submitted-payment", api.ListPaymentSubmittedRequests)

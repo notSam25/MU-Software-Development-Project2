@@ -32,7 +32,6 @@ const STATUS = {
   rejected: "Rejected",
   beingReviewed: "Being Reviewed",
   accepted: "Accepted",
-  acknowledged: "Acknowledged",
 };
 
 function normalizeFinalDecision(value) {
@@ -73,7 +72,14 @@ function init() {
   bindAuthForms();
   bindLoginRoleBehavior();
   bindSessionControls();
+  bindAccountSettingsControls();
   bindTabControls();
+  bindAddressSearch(
+    "#register-address-search",
+    "#register-address-results",
+    "#register-form textarea[name='organization_address']",
+    "#register-address-search-btn",
+  );
   renderSessionState();
   refreshSessionFromWhoAmI();
 }
@@ -120,11 +126,26 @@ function normalizeTrackedItem(item) {
       environmentalPermit?.Description ||
       environmentalPermit?.description ||
       "",
-    activityDescription: String(item?.activityDescription || ""),
+    activityDescription: String(
+      item?.activityDescription || item?.ActivityDescription || "",
+    ),
+    activitySite: String(item?.activitySite || item?.ActivitySite || ""),
+    activityStartDate: String(
+      item?.activityStartDate || item?.ActivityStartDate || "",
+    ),
+    activityDuration: Number(
+      item?.activityDuration || item?.ActivityDuration || 0,
+    ),
     environmentalPermitId: Number(item?.environmentalPermitId || 0),
     permitFee: Number(item?.permitFee || 0),
     status: String(item?.status || ""),
     finalDecision: normalizeFinalDecision(item?.finalDecision),
+    finalDecisionDescription: String(
+      item?.finalDecisionDescription ||
+        item?.final_decision_description ||
+        item?.Decision?.Description ||
+        "",
+    ),
     permitCreated: Boolean(item?.permitCreated),
     updatedAt: item?.updatedAt || "",
     notes: Array.isArray(item?.notes) ? item.notes.slice(-10) : [],
@@ -192,12 +213,123 @@ function bindLoginRoleBehavior() {
   setRoleMode();
 }
 
+//End the active session and refresh role-scoped UI state.
+function endSession(message = "Session ended.") {
+  closeAccountSettings();
+  clearAuth();
+  renderSessionState();
+  showNotice(message, "info");
+}
+
 function bindSessionControls() {
-  $("#logout-btn")?.addEventListener("click", () => {
-    clearAuth();
-    renderSessionState();
-    showNotice("Session ended.", "info");
+  $("#logout-btn")?.addEventListener("click", () => endSession());
+
+  const topAuthLink = $("#top-auth-link");
+  if (topAuthLink && topAuthLink.dataset.bound !== "true") {
+    topAuthLink.dataset.bound = "true";
+    topAuthLink.addEventListener("click", (event) => {
+      //Allow normal navigation to login page when no session exists.
+      if (!state.auth?.token) return;
+
+      event.preventDefault();
+      endSession("Session ended. Sign in to switch accounts.");
+    });
+  }
+}
+
+function renderTopAuthLink() {
+  const topAuthLink = $("#top-auth-link");
+  if (!topAuthLink) return;
+
+  const hasSession = Boolean(state.auth?.token);
+  topAuthLink.textContent = hasSession ? "Logout" : "Login";
+  topAuthLink.setAttribute("href", hasSession ? "#" : "/login.html");
+}
+
+function bindAccountSettingsControls() {
+  const button = $("#account-settings-btn");
+  const closeButton = $("#account-settings-close");
+  const backdrop = $("#account-settings-backdrop");
+  const modal = $("#account-settings-modal");
+  if (!button || !modal) return;
+  if (button.dataset.bound === "true") return;
+
+  button.dataset.bound = "true";
+
+  button.addEventListener("click", async () => {
+    if (!state.auth?.token) {
+      showNotice("Sign in to access account settings.", "info");
+      return;
+    }
+
+    await openAccountSettings();
   });
+
+  closeButton?.addEventListener("click", closeAccountSettings);
+  backdrop?.addEventListener("click", closeAccountSettings);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.classList.contains("hidden")) {
+      closeAccountSettings();
+    }
+  });
+}
+
+async function openAccountSettings() {
+  const uiRole = ACCOUNT_TYPE_TO_UI_ROLE[state.auth?.accountType];
+  const modal = $("#account-settings-modal");
+  const content = $("#account-settings-content");
+  if (!uiRole || !modal || !content) return;
+
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+  document.body.classList.add("overflow-hidden");
+  content.innerHTML =
+    '<p class="text-sm text-slate-600">Loading account settings...</p>';
+
+  //Map each role to its settings fragment and initializer.
+  const settingsByRole = {
+    re: {
+      fragmentPath: "/fragments/re-account-settings.html",
+      initPanel: initReAccountSettingsPanel,
+    },
+    eo: {
+      fragmentPath: "/fragments/eo-account-settings.html",
+      initPanel: initEoAccountSettingsPanel,
+    },
+  };
+  const settings = settingsByRole[uiRole];
+  if (!settings) return;
+
+  try {
+    const response = await fetch(settings.fragmentPath, {
+      method: "GET",
+      headers: { Accept: "text/html" },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `${response.status} ${response.statusText || "Failed to load settings"}`,
+      );
+    }
+
+    content.innerHTML = await response.text();
+    await settings.initPanel();
+  } catch (error) {
+    content.innerHTML = `<p class="text-sm text-warn-600">${escapeHtml(
+      error?.message || "Unable to load account settings.",
+    )}</p>`;
+  }
+}
+
+function closeAccountSettings() {
+  const modal = $("#account-settings-modal");
+  const content = $("#account-settings-content");
+  if (!modal) return;
+
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+  document.body.classList.remove("overflow-hidden");
+  if (content) content.innerHTML = "";
 }
 
 //Wire tab clicks and htmx fragment lifecycle
@@ -253,6 +385,18 @@ async function onLogin(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = toFormData(form);
+
+  if (state.auth?.token) {
+    showNotice(
+      "You are already signed in. Logout from the dashboard top bar before switching accounts.",
+      "info",
+    );
+    if (!window.location.pathname.endsWith("/dashboard.html")) {
+      window.location.assign("/dashboard.html");
+    }
+    return;
+  }
+
   const accountType = ACCOUNT_TYPES[data.role];
 
   if (!accountType) {
@@ -283,6 +427,12 @@ async function onLogin(event) {
 
     renderSessionState();
     form.reset();
+
+    if (!window.location.pathname.endsWith("/dashboard.html")) {
+      window.location.assign("/dashboard.html");
+      return;
+    }
+
     showNotice(
       `${ROLE_LABELS[ACCOUNT_TYPE_TO_UI_ROLE[state.auth.accountType]]} signed in.`,
       "success",
@@ -302,23 +452,54 @@ function hideAppPanel(panel, content) {
   updateTabStyling(null);
 }
 
+function showDashboardLoggedOutState(
+  panel,
+  content,
+  loginRequired,
+  accountSettingsButton,
+) {
+  //Shared dashboard fallback when there is no valid signed-in session.
+  closeAccountSettings();
+  accountSettingsButton?.classList.add("hidden");
+  loginRequired?.classList.remove("hidden");
+  hideAppPanel(panel, content);
+}
+
 function renderSessionState() {
   const panel = $("#app-panel");
   const sessionTitle = $("#session-title");
   const content = $("#tab-content");
+  const loginRequired = $("#dashboard-login-required");
+  const accountSettingsButton = $("#account-settings-btn");
+
+  renderTopAuthLink();
+
   if (!panel || !sessionTitle || !content) return;
 
   if (!state.auth?.token) {
-    hideAppPanel(panel, content);
+    showDashboardLoggedOutState(
+      panel,
+      content,
+      loginRequired,
+      accountSettingsButton,
+    );
     return;
   }
 
   const uiRole = ACCOUNT_TYPE_TO_UI_ROLE[state.auth.accountType];
   if (!uiRole) {
     clearAuth();
-    hideAppPanel(panel, content);
+    showDashboardLoggedOutState(
+      panel,
+      content,
+      loginRequired,
+      accountSettingsButton,
+    );
     return;
   }
+
+  loginRequired?.classList.add("hidden");
+  accountSettingsButton?.classList.remove("hidden");
 
   const roleLabel = ROLE_LABELS[uiRole] || "Account";
 
@@ -381,10 +562,44 @@ async function syncSessionFromWhoAmI() {
   return state.auth;
 }
 
+function renderDefinitionRows(container, rows) {
+  //Render a compact definition list used by account overview panels.
+  container.innerHTML = rows
+    .map(
+      ([label, value]) =>
+        `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
+    )
+    .join("");
+}
+
+function bindPasswordChangeForm(selector) {
+  //Shared password change flow for account settings forms.
+  bindSubmit(selector, async (data, form) => {
+    if (String(data.new_password || "").length < 6) {
+      showNotice("New password must be at least six characters.", "error");
+      return;
+    }
+    if (data.new_password !== data.confirm_new_password) {
+      showNotice("New password and confirmation must match.", "error");
+      return;
+    }
+
+    await apiRequest("/change-password", {
+      method: "POST",
+      body: {
+        current_password: data.current_password,
+        new_password: data.new_password,
+      },
+    });
+
+    form.reset();
+    showNotice("Password updated successfully.", "success");
+  });
+}
+
 async function initReAccountTab() {
   const profile = $("#re-profile");
   const note = $("#re-account-note");
-  const accountForm = $("#re-account-form");
   if (!profile) return;
 
   const renderAccount = (account) => {
@@ -396,22 +611,7 @@ async function initReAccountTab() {
       ["Address", account?.organization_address || "n/a"],
     ];
 
-    profile.innerHTML = rows
-      .map(
-        ([label, value]) =>
-          `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
-      )
-      .join("");
-
-    if (accountForm) {
-      accountForm.elements.namedItem("contact_person_name").value =
-        account?.contact_person_name || "";
-      accountForm.elements.namedItem("email").value = account?.email || "";
-      accountForm.elements.namedItem("organization_name").value =
-        account?.organization_name || "";
-      accountForm.elements.namedItem("organization_address").value =
-        account?.organization_address || "";
-    }
+    renderDefinitionRows(profile, rows);
   };
 
   let account;
@@ -434,10 +634,71 @@ async function initReAccountTab() {
 
   renderAccount(account);
   if (note) {
-    note.textContent = "You can update profile fields and password here";
+    note.textContent =
+      "Use Account in the top navigation bar to edit this information.";
+  }
+}
+
+async function initReAccountSettingsPanel() {
+  const root = $("#account-settings-content");
+  if (!root) return;
+  const profile = $("#re-settings-profile", root);
+  const note = $("#re-settings-note", root);
+  const accountForm = $("#re-settings-account-form", root);
+  if (!profile || !accountForm) return;
+
+  const renderAccount = (account) => {
+    const rows = [
+      ["Email", account?.email || state.auth?.email || ""],
+      ["Account Type", "regulated_entity"],
+      ["Contact", account?.contact_person_name || "n/a"],
+      ["Organization", account?.organization_name || "n/a"],
+      ["Address", account?.organization_address || "n/a"],
+    ];
+
+    renderDefinitionRows(profile, rows);
+
+    accountForm.elements.namedItem("contact_person_name").value =
+      account?.contact_person_name || "";
+    accountForm.elements.namedItem("email").value = account?.email || "";
+    accountForm.elements.namedItem("organization_name").value =
+      account?.organization_name || "";
+    accountForm.elements.namedItem("organization_address").value =
+      account?.organization_address || "";
+  };
+
+  let account;
+  try {
+    account = await apiRequest("/account");
+  } catch (error) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Unable to load account details.</p>';
+    if (note) note.textContent = "Try reopening Account settings";
+    showNotice(`Failed to load account details: ${error.message}`, "error");
+    return;
   }
 
-  bindSubmit("#re-account-form", async (data) => {
+  if (account?.account_type !== ACCOUNT_TYPES.re) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Regulated entity account details are unavailable for this session.</p>';
+    if (note) note.textContent = "Sign in as a regulated entity";
+    return;
+  }
+
+  renderAccount(account);
+  if (note) {
+    note.textContent =
+      "Updates here sync to the read-only dashboard account overview.";
+  }
+
+  bindAddressSearch(
+    "#re-settings-address-search",
+    "#re-settings-address-results",
+    "#re-settings-account-form textarea[name='organization_address']",
+    "#re-settings-address-search-btn",
+  );
+
+  bindSubmit("#re-settings-account-form", async (data) => {
     const previousEmail = normalizeEmail(state.auth?.email);
     const updated = await apiRequest("/account", {
       method: "PATCH",
@@ -483,27 +744,7 @@ async function initReAccountTab() {
     showNotice("Regulated entity account updated.", "success");
   });
 
-  bindSubmit("#re-password-form", async (data, form) => {
-    if (String(data.new_password || "").length < 6) {
-      showNotice("New password must be at least six characters.", "error");
-      return;
-    }
-    if (data.new_password !== data.confirm_new_password) {
-      showNotice("New password and confirmation must match.", "error");
-      return;
-    }
-
-    await apiRequest("/change-password", {
-      method: "POST",
-      body: {
-        current_password: data.current_password,
-        new_password: data.new_password,
-      },
-    });
-
-    form.reset();
-    showNotice("Password updated successfully.", "success");
-  });
+  bindPasswordChangeForm("#re-settings-password-form");
 }
 
 async function initRePermitTab() {
@@ -520,6 +761,9 @@ async function initRePermitTab() {
     );
     const durationHours = Number(data.activity_duration_hours);
     const startDateIso = toDateOnlyISO(data.activity_start_date);
+    const activityDurationNs = Math.round(
+      durationHours * 60 * 60 * 1000000000,
+    );
 
     if (!permitId) {
       showNotice("Provide a valid environmental permit ID.", "error");
@@ -541,9 +785,10 @@ async function initRePermitTab() {
       method: "POST",
       body: {
         activity_description: data.activity_description,
+        activity_site: data.activity_site,
         activity_start_date: startDateIso,
         //Convert hours to nanoseconds for backend duration format
-        activity_duration: Math.round(durationHours * 60 * 60 * 1000000000),
+        activity_duration: activityDurationNs,
         environmental_permit_id: permitId,
       },
     });
@@ -562,6 +807,9 @@ async function initRePermitTab() {
       id: requestId,
       ownerEmail: state.auth?.email || "",
       activityDescription: data.activity_description,
+      activitySite: data.activity_site,
+      activityStartDate: startDateIso,
+      activityDuration: activityDurationNs,
       environmentalPermitId: permitId,
       permitName:
         environmentalPermits.find((item) => item.id === permitId)
@@ -661,81 +909,31 @@ async function initReAckTab() {
     "No tracked workflow updates are available.",
     (item) => {
       const finalDecision = finalDecisionFromTrackedItem(item);
-      const isAcknowledged = item?.status === STATUS.acknowledged;
-      const acknowledgementState = finalDecision
-        ? isAcknowledged
+      const permitIssued = finalDecision === STATUS.accepted
+        ? item?.permitCreated
           ? "Yes"
-          : "No"
-        : "Not yet applicable";
-      const permitIssued =
-        finalDecision === STATUS.accepted
-          ? item?.permitCreated
-            ? "Yes"
-            : "Pending issuance"
-          : finalDecision === STATUS.rejected
-            ? "No"
-            : "Not yet decided";
-
-      const canAcknowledge =
-        item?.status === STATUS.accepted || item?.status === STATUS.rejected;
-      const footer = canAcknowledge
-        ? `<div class="mt-2"><button class="btn-secondary" type="button" data-ack-request-id="${escapeHtml(item.id)}">Acknowledge EO Decision</button></div>`
-        : "";
+          : "Pending issuance"
+        : finalDecision === STATUS.rejected
+          ? "No"
+          : "Not yet decided";
 
       return card(
         item.id,
         [
           detail("Owner", ownerDisplayName(item)),
           detail("EO final decision", finalDecision || "Not yet decided"),
-          detail("Decision acknowledged", acknowledgementState),
           detail("Permit issued", permitIssued),
           detail("Current status", item.status || "Unknown"),
           detail("Latest note", latestNote(item) || "No note available"),
         ],
-        footer,
       );
     },
   );
-
-  const container = $("#re-ack-list");
-  if (!container) return;
-
-  container.onclick = async (event) => {
-    const button = event.target.closest("[data-ack-request-id]");
-    if (!button) return;
-
-    const requestId = Number(button.dataset.ackRequestId || 0);
-    if (!requestId) return;
-
-    button.disabled = true;
-    try {
-      const response = await apiRequest(
-        `/permit-request/${requestId}/acknowledge`,
-        {
-          method: "POST",
-        },
-      );
-
-      updateTrackedStatus(
-        requestId,
-        response.status || STATUS.acknowledged,
-        "RE acknowledged EO decision.",
-      );
-      saveState();
-      initReAckTab();
-      showNotice(`Request #${requestId} acknowledged.`, "success");
-    } catch (error) {
-      showNotice(`Acknowledge failed: ${error.message}`, "error");
-    } finally {
-      button.disabled = false;
-    }
-  };
 }
 
 async function initEoAccountTab() {
   const profile = $("#eo-profile");
   const note = $("#eo-account-note");
-  const accountForm = $("#eo-account-form");
   if (!profile) return;
 
   const renderAccount = (account) => {
@@ -745,17 +943,7 @@ async function initEoAccountTab() {
       ["Name", account?.name || "n/a"],
     ];
 
-    profile.innerHTML = rows
-      .map(
-        ([label, value]) =>
-          `<div><dt class="text-slate-500">${label}</dt><dd>${escapeHtml(value)}</dd></div>`,
-      )
-      .join("");
-
-    if (accountForm) {
-      accountForm.elements.namedItem("name").value = account?.name || "";
-      accountForm.elements.namedItem("email").value = account?.email || "";
-    }
+    renderDefinitionRows(profile, rows);
   };
 
   let account;
@@ -778,10 +966,57 @@ async function initEoAccountTab() {
 
   renderAccount(account);
   if (note) {
-    note.textContent = "You can update profile fields and password here";
+    note.textContent =
+      "Use Account in the top navigation bar to edit this information.";
+  }
+}
+
+async function initEoAccountSettingsPanel() {
+  const root = $("#account-settings-content");
+  if (!root) return;
+  const profile = $("#eo-settings-profile", root);
+  const note = $("#eo-settings-note", root);
+  const accountForm = $("#eo-settings-account-form", root);
+  if (!profile || !accountForm) return;
+
+  const renderAccount = (account) => {
+    const rows = [
+      ["Email", account?.email || state.auth?.email || ""],
+      ["Account Type", "environmental_officer"],
+      ["Name", account?.name || "n/a"],
+    ];
+
+    renderDefinitionRows(profile, rows);
+
+    accountForm.elements.namedItem("name").value = account?.name || "";
+    accountForm.elements.namedItem("email").value = account?.email || "";
+  };
+
+  let account;
+  try {
+    account = await apiRequest("/account");
+  } catch (error) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Unable to load account details.</p>';
+    if (note) note.textContent = "Try reopening Account settings";
+    showNotice(`Failed to load account details: ${error.message}`, "error");
+    return;
   }
 
-  bindSubmit("#eo-account-form", async (data) => {
+  if (account?.account_type !== ACCOUNT_TYPES.eo) {
+    profile.innerHTML =
+      '<p class="text-sm text-slate-600">Environmental officer account details are unavailable for this session.</p>';
+    if (note) note.textContent = "Sign in as an environmental officer";
+    return;
+  }
+
+  renderAccount(account);
+  if (note) {
+    note.textContent =
+      "Updates here sync to the read-only dashboard account overview.";
+  }
+
+  bindSubmit("#eo-settings-account-form", async (data) => {
     const updated = await apiRequest("/account", {
       method: "PATCH",
       body: {
@@ -804,27 +1039,7 @@ async function initEoAccountTab() {
     showNotice("Environmental officer account updated.", "success");
   });
 
-  bindSubmit("#eo-password-form", async (data, form) => {
-    if (String(data.new_password || "").length < 6) {
-      showNotice("New password must be at least six characters.", "error");
-      return;
-    }
-    if (data.new_password !== data.confirm_new_password) {
-      showNotice("New password and confirmation must match.", "error");
-      return;
-    }
-
-    await apiRequest("/change-password", {
-      method: "POST",
-      body: {
-        current_password: data.current_password,
-        new_password: data.new_password,
-      },
-    });
-
-    form.reset();
-    showNotice("Password updated successfully.", "success");
-  });
+  bindPasswordChangeForm("#eo-settings-password-form");
 }
 
 async function initEoReviewTab() {
@@ -857,15 +1072,52 @@ async function initEoReviewTab() {
   });
 }
 
-function initEoIssueTab() {
-  //Issue accepted or rejected decision for reviewed requests
-  renderKnownBeingReviewed();
-  renderEoDecisionSelector();
+async function initEoIssueTab() {
+  //Show all permit applications before final decision actions.
+  const refreshDecisionInputs = async () => {
+    try {
+      const payload = await apiRequest("/eo/permit-requests");
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      syncTrackedFromApiItems(items);
+      saveState();
+
+      renderEoAllPermitRequests(items);
+      renderKnownBeingReviewed();
+
+      const beingReviewed = items.filter(
+        (item) => latestStatusFromApi(item) === STATUS.beingReviewed,
+      );
+      setSelectOptions(
+        "#eo-final-decision-form select[name='request_id']",
+        "Select being-reviewed request",
+        beingReviewed,
+        (item) => requestIdFromApi(item),
+        (item) =>
+          `#${requestIdFromApi(item)} - ${item.ActivityDescription || "request"}`,
+      );
+    } catch (error) {
+      renderList(
+        "#eo-all-requests-list",
+        [],
+        "Unable to load permit applications.",
+        () => "",
+      );
+      setSelectOptions(
+        "#eo-final-decision-form select[name='request_id']",
+        "Select being-reviewed request",
+        [],
+      );
+      renderKnownBeingReviewed();
+      showNotice(`Failed to load permit application details: ${error.message}`, "error");
+    }
+  };
+
+  await refreshDecisionInputs();
 
   bindSubmit("#eo-final-decision-form", async (data, form) => {
-    const requestId = Number(data.request_id_manual || data.request_id);
+    const requestId = Number(data.request_id);
     if (!requestId) {
-      showNotice("Select or enter a permit request ID.", "error");
+      showNotice("Select a permit request from the Being Reviewed list.", "error");
       return;
     }
 
@@ -883,6 +1135,7 @@ function initEoIssueTab() {
     if (tracked) {
       tracked.permitCreated = decision === STATUS.accepted;
       tracked.finalDecision = normalizeFinalDecision(decision);
+      tracked.finalDecisionDescription = data.description || "";
     }
     updateTrackedStatus(
       requestId,
@@ -892,8 +1145,7 @@ function initEoIssueTab() {
     saveState();
 
     form.reset();
-    renderKnownBeingReviewed();
-    renderEoDecisionSelector();
+    await refreshDecisionInputs();
     showNotice(
       `EO final decision submitted for request #${requestId}.`,
       "success",
@@ -923,7 +1175,6 @@ async function initEoReportTab() {
     ["Being Reviewed", countByStatus(rows, STATUS.beingReviewed)],
     ["Accepted", countByStatus(rows, STATUS.accepted)],
     ["Rejected", countByStatus(rows, STATUS.rejected)],
-    ["Acknowledged", countByStatus(rows, STATUS.acknowledged)],
     ["Live Submitted Queue", submittedQueueCount],
   ];
 
@@ -944,9 +1195,12 @@ async function initEoReportTab() {
   const table = $("#eo-report-table");
   if (!table) return;
 
+  //Always bind export actions so PDF/CSV buttons work even when no rows are present.
+  bindEoReportExports();
+
   if (!rows.length) {
     table.innerHTML =
-      '<tr><td class="px-2 py-2 text-slate-600" colspan="9">No tracked requests are available.</td></tr>';
+      '<tr><td class="px-2 py-2 text-slate-600" colspan="11">No tracked requests are available.</td></tr>';
     return;
   }
 
@@ -961,6 +1215,8 @@ async function initEoReportTab() {
           <td class="px-2 py-2">${escapeHtml(item.activityDescription || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.environmentalPermitId || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.status || "Unknown")}</td>
+          <td class="px-2 py-2">${escapeHtml(item.finalDecision || "Not decided")}</td>
+          <td class="px-2 py-2">${escapeHtml(item.finalDecisionDescription || "n/a")}</td>
           <td class="px-2 py-2">${escapeHtml(item.permitCreated ? "Created" : "Not created")}</td>
           <td class="px-2 py-2">${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "n/a")}</td>
         </tr>
@@ -1056,6 +1312,7 @@ function renderRePermitList() {
         detail("Permit Template ID", item.environmentalPermitId || "n/a"),
         detail("Permit Fee", money(item.permitFee || 0)),
         detail("Activity", item.activityDescription || "n/a"),
+        detail("Activity Site", item.activitySite || "n/a"),
       ]),
   );
 }
@@ -1102,23 +1359,36 @@ function renderKnownBeingReviewed() {
           "Owner Email",
           item.ownerEmail || item?.RegulatedEntity?.email || "unknown",
         ),
-        detail("Permit Type", permitTypeDisplay(item)),
-        detail("Activity", item.activityDescription || "n/a"),
+        detail("Activity Description", item.activityDescription || "n/a"),
+        detail("Activity Start Date", formatActivityStartDate(item.activityStartDate)),
+        detail("Activity Duration", formatActivityDuration(item.activityDuration)),
+        detail("Permit Fee", money(item.permitFee || 0)),
+        detail("Activity Site", item.activitySite || "n/a"),
       ]),
   );
 }
 
-function renderEoDecisionSelector() {
-  const rows = sortedTrackedRequests().filter(
-    (item) => item.status === STATUS.beingReviewed,
-  );
-  setSelectOptions(
-    "#eo-final-decision-form select[name='request_id']",
-    "Select being-reviewed request",
-    rows,
-    (item) => item.id,
-    (item) =>
-      `#${item.id} - ${permitTypeDisplay(item) || item.activityDescription || "request"}`,
+function renderEoAllPermitRequests(items) {
+  renderList(
+    "#eo-all-requests-list",
+    items,
+    "No permit applications are available.",
+    (item) => {
+      const requestId = requestIdFromApi(item);
+      return card(requestId || "n/a", [
+        detail("Latest status", latestStatusFromApi(item) || "Unknown"),
+        detail("Status history", statusHistoryFromApi(item) || "No status history"),
+        detail("Regulated Entity ID", item.RegulatedEntityID || "n/a"),
+        detail("Activity", item.ActivityDescription || "n/a"),
+        detail("Activity Site", item.ActivitySite || "n/a"),
+        detail("Activity Start Date", formatActivityStartDate(item.ActivityStartDate)),
+        detail("Activity Duration", formatActivityDuration(item.ActivityDuration)),
+        detail("Permit Template ID", item.EnvironmentalPermitID || "n/a"),
+        detail("Permit Fee", money(item.PermitFee || 0)),
+        detail("Final decision", item?.Decision?.Decision || "Not decided"),
+        detail("Decision notes", item?.Decision?.Description || "n/a"),
+      ]);
+    },
   );
 }
 
@@ -1310,12 +1580,16 @@ function ensureTrackedRequest(id, ownerEmail = "") {
     ownerName: "",
     organizationName: "",
     activityDescription: "",
+    activitySite: "",
+    activityStartDate: "",
+    activityDuration: 0,
     environmentalPermitId: 0,
     permitName: "",
     permitDescription: "",
     permitFee: 0,
     status: "",
     finalDecision: "",
+    finalDecisionDescription: "",
     permitCreated: false,
     updatedAt: new Date().toISOString(),
     notes: [],
@@ -1344,6 +1618,12 @@ function normalizeTrackedPatch(patch, fallback = {}) {
       patch?.permitDescription ?? fallback.permitDescription ?? "",
     activityDescription:
       patch?.activityDescription ?? fallback.activityDescription ?? "",
+    activitySite: patch?.activitySite ?? fallback.activitySite ?? "",
+    activityStartDate:
+      patch?.activityStartDate ?? fallback.activityStartDate ?? "",
+    activityDuration: Number(
+      patch?.activityDuration ?? fallback.activityDuration ?? 0,
+    ),
     environmentalPermitId:
       environmentPermitId !== undefined &&
       environmentPermitId !== null &&
@@ -1359,6 +1639,8 @@ function normalizeTrackedPatch(patch, fallback = {}) {
         ? patch.finalDecision
         : fallback.finalDecision,
     ),
+    finalDecisionDescription:
+      patch?.finalDecisionDescription ?? fallback.finalDecisionDescription ?? "",
     permitCreated:
       typeof patch?.permitCreated === "boolean"
         ? patch.permitCreated
@@ -1423,18 +1705,10 @@ function latestNote(item) {
 }
 
 function finalDecisionFromTrackedItem(item) {
-  //Prefer explicitly stored final decision, then infer from current status.
-  const decision =
+  return (
     normalizeFinalDecision(item?.finalDecision) ||
-    normalizeFinalDecision(item?.status);
-  if (decision) return decision;
-
-  //For already acknowledged requests, fall back to permit creation as a signal.
-  if (item?.status === STATUS.acknowledged) {
-    return item?.permitCreated ? STATUS.accepted : STATUS.rejected;
-  }
-
-  return "";
+    normalizeFinalDecision(item?.status)
+  );
 }
 
 function syncTrackedFromApiItems(items) {
@@ -1485,13 +1759,27 @@ function syncTrackedFromApiItems(items) {
         "",
       activityDescription:
         item.ActivityDescription || existing?.activityDescription || "",
+      activitySite: item.ActivitySite || existing?.activitySite || "",
+      activityStartDate:
+        item.ActivityStartDate || existing?.activityStartDate || "",
+      activityDuration: Number(
+        item.ActivityDuration || existing?.activityDuration || 0,
+      ),
       environmentalPermitId: Number(
         item.EnvironmentalPermitID || existing?.environmentalPermitId || 0,
       ),
       permitFee: Number(item.PermitFee || existing?.permitFee || 0),
       status: latestStatus,
       finalDecision:
-        normalizeFinalDecision(latestStatus) || existing?.finalDecision || "",
+        normalizeFinalDecision(item?.Decision?.Decision) ||
+        normalizeFinalDecision(latestStatus) ||
+        existing?.finalDecision ||
+        "",
+      finalDecisionDescription:
+        item?.Decision?.Description ||
+        latestStatusDescriptionFromApi(item) ||
+        existing?.finalDecisionDescription ||
+        "",
       permitCreated: Boolean(item.Permit) || existing?.permitCreated,
       notes: notes.length ? notes : existing?.notes || [],
       updatedAt: new Date().toISOString(),
@@ -1520,6 +1808,26 @@ function latestStatusFromApi(item) {
     Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max,
   );
   return latest?.Status || "";
+}
+
+function latestStatusDescriptionFromApi(item) {
+  const statuses = Array.isArray(item?.Statuses) ? item.Statuses : [];
+  if (!statuses.length) return "";
+
+  const latest = statuses.reduce((max, current) =>
+    Number(current?.ID || 0) > Number(max?.ID || 0) ? current : max,
+  );
+  return latest?.Description || "";
+}
+
+function statusHistoryFromApi(item) {
+  const statuses = Array.isArray(item?.Statuses)
+    ? [...item.Statuses]
+    : [];
+  if (!statuses.length) return "";
+
+  statuses.sort((a, b) => Number(a?.ID || 0) - Number(b?.ID || 0));
+  return statuses.map((status) => status?.Status || "").filter(Boolean).join(" -> ");
 }
 
 async function apiRequest(path, options = {}) {
@@ -1558,6 +1866,237 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+async function downloadAuthorizedFile(path, fallbackFilename) {
+  if (!state.auth?.token) {
+    throw new Error("No active session.");
+  }
+
+  const response = await fetch(`/api${path}`, {
+    method: "GET",
+    headers: {
+      Accept: "*/*",
+      Authorization: `Bearer ${state.auth.token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(extractApiError(payload, response));
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  const filename = match?.[1] || fallbackFilename;
+
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
+}
+
+function bindEoReportExports() {
+  const exportCsv = $("#eo-export-csv");
+  const exportPdf = $("#eo-export-pdf");
+
+  if (exportCsv && exportCsv.dataset.bound !== "true") {
+    exportCsv.dataset.bound = "true";
+    exportCsv.addEventListener("click", async () => {
+      try {
+        await downloadAuthorizedFile(
+          "/eo/permit-requests/export.csv",
+          "permit-applications.csv",
+        );
+        showNotice("CSV export downloaded.", "success");
+      } catch (error) {
+        showNotice(`CSV export failed: ${error.message}`, "error");
+      }
+    });
+  }
+
+  if (exportPdf && exportPdf.dataset.bound !== "true") {
+    exportPdf.dataset.bound = "true";
+    exportPdf.addEventListener("click", () => {
+      const printableRows = sortedTrackedRequests();
+      const printWindow = window.open(
+        "about:blank",
+        "_blank",
+        "width=1100,height=800",
+      );
+      if (!printWindow) {
+        showNotice("Allow popups to export the report as PDF.", "error");
+        return;
+      }
+
+      const tableRows = printableRows
+        .map(
+          (item) => `
+            <tr>
+              <td>${escapeHtml(item.id)}</td>
+              <td>${escapeHtml(ownerDisplayName(item))}</td>
+              <td>${escapeHtml(item.ownerEmail || "unknown")}</td>
+              <td>${escapeHtml(permitTypeDisplay(item))}</td>
+              <td>${escapeHtml(item.activityDescription || "n/a")}</td>
+              <td>${escapeHtml(item.environmentalPermitId || "n/a")}</td>
+              <td>${escapeHtml(item.status || "Unknown")}</td>
+              <td>${escapeHtml(item.finalDecision || "Not decided")}</td>
+              <td>${escapeHtml(item.finalDecisionDescription || "n/a")}</td>
+              <td>${escapeHtml(item.permitCreated ? "Created" : "Not created")}</td>
+              <td>${escapeHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "n/a")}</td>
+            </tr>
+          `,
+        )
+        .join("");
+
+      const tableBody =
+        tableRows ||
+        '<tr><td colspan="11">No tracked requests are available.</td></tr>';
+
+      const generatedAt = escapeHtml(new Date().toLocaleString());
+
+      printWindow.document.open();
+      printWindow.document.write(`
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <title>Environmental Officer Workflow Report</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+              h1 { margin: 0 0 8px 0; }
+              p { margin: 0 0 16px 0; color: #4b5563; }
+              .print-actions { margin: 0 0 12px 0; }
+              .print-btn { border: 1px solid #94a3b8; background: #f8fafc; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+              table { border-collapse: collapse; width: 100%; }
+              th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
+              th { background: #f8fafc; }
+              @media print {
+                .print-actions { display: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <h1>Environmental Officer Workflow Report</h1>
+            <p>Generated ${generatedAt}</p>
+            <div class="print-actions">
+              <button class="print-btn" type="button" onclick="window.print()">Print / Save as PDF</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Request #</th>
+                  <th>Owner</th>
+                  <th>Owner Email</th>
+                  <th>Permit Type</th>
+                  <th>Activity</th>
+                  <th>Permit Template ID</th>
+                  <th>Status</th>
+                  <th>Final Decision</th>
+                  <th>Decision Notes</th>
+                  <th>Permit Record</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>${tableBody}</tbody>
+            </table>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+
+      //Use both load and timeout triggers to handle browser-specific print timing.
+      let hasPrinted = false;
+      const triggerPrint = () => {
+        if (hasPrinted || printWindow.closed) return;
+        hasPrinted = true;
+        printWindow.focus();
+        printWindow.print();
+      };
+
+      printWindow.addEventListener(
+        "load",
+        () => {
+          setTimeout(triggerPrint, 200);
+        },
+        { once: true },
+      );
+
+      setTimeout(triggerPrint, 900);
+    });
+  }
+}
+
+function bindAddressSearch(searchSelector, resultsSelector, targetSelector, buttonSelector) {
+  const searchInput = $(searchSelector);
+  const results = $(resultsSelector);
+  const target = $(targetSelector);
+  const button = $(buttonSelector);
+  if (!searchInput || !results || !target || !button) return;
+  if (button.dataset.bound === "true") return;
+
+  button.dataset.bound = "true";
+
+  results.addEventListener("change", () => {
+    if (results.value) {
+      target.value = results.value;
+    }
+  });
+
+  button.addEventListener("click", async () => {
+    const query = String(searchInput.value || "").trim();
+    if (query.length < 3) {
+      showNotice("Enter at least three characters for address suggestions.", "info");
+      return;
+    }
+
+    button.disabled = true;
+    results.innerHTML = "";
+    try {
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("limit", "6");
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Address lookup service unavailable");
+      }
+
+      const payload = await response.json();
+      const suggestions = Array.isArray(payload)
+        ? payload.map((item) => item?.display_name).filter(Boolean)
+        : [];
+
+      if (!suggestions.length) {
+        results.innerHTML = '<option value="">No address suggestions found</option>';
+        return;
+      }
+
+      results.innerHTML = suggestions
+        .map(
+          (value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`,
+        )
+        .join("");
+      target.value = suggestions[0];
+    } catch (error) {
+      showNotice(`Address helper failed: ${error.message}`, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 function extractApiError(payload, response) {
   //Build readable error from backend payload
   const parts = [payload?.error, payload?.message, payload?.details].filter(
@@ -1580,6 +2119,45 @@ function toDateOnlyISO(value) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function formatActivityStartDate(value) {
+  if (!value) return "n/a";
+
+  //Keep date-only values stable across timezones and very old years.
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${month}/${day}/${year}`;
+  }
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return date.toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatActivityDuration(value) {
+  const nanoseconds = Number(value || 0);
+  if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return "n/a";
+
+  const hours = nanoseconds / 3600000000000;
+  if (hours >= 1) {
+    const rounded = Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(2);
+    return `${rounded} hour${Number(rounded) === 1 ? "" : "s"}`;
+  }
+
+  const minutes = nanoseconds / 60000000000;
+  const roundedMinutes = Number.isInteger(minutes)
+    ? minutes.toFixed(0)
+    : minutes.toFixed(1);
+  return `${roundedMinutes} minute${Number(roundedMinutes) === 1 ? "" : "s"}`;
 }
 
 function showNotice(message, level = "info") {

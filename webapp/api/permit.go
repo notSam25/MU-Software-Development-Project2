@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"encoding/csv"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"project/database"
@@ -66,6 +70,24 @@ func currentPermitRequestsWithStatus(status string) ([]database.PermitRequest, e
 	return filtered, nil
 }
 
+// allPermitRequests loads all permit requests with related entities for EO reporting/review screens.
+func allPermitRequests() ([]database.PermitRequest, error) {
+	var requests []database.PermitRequest
+	if err := database.DB.
+		Preload("Statuses", func(tx *gorm.DB) *gorm.DB { return tx.Order("id asc") }).
+		Preload("Decision").
+		Preload("Payment").
+		Preload("Permit").
+		Preload("RegulatedEntity").
+		Preload("EnvironmentalPermit").
+		Order("id desc").
+		Find(&requests).Error; err != nil {
+		return nil, err
+	}
+
+	return requests, nil
+}
+
 // currentPermitRequestsForRegulatedEntity loads every permit request owned by the given regulated entity.
 // This powers the RE workflow tabs so they can refresh status, notes, and final decision history from the backend.
 func currentPermitRequestsForRegulatedEntity(regulatedEntityID uint) ([]database.PermitRequest, error) {
@@ -84,6 +106,41 @@ func currentPermitRequestsForRegulatedEntity(regulatedEntityID uint) ([]database
 	}
 
 	return requests, nil
+}
+
+// latestStatusFromStatuses returns the newest workflow status string from a status list.
+func latestStatusFromStatuses(statuses []database.PermitRequestStatus) string {
+	if len(statuses) == 0 {
+		return ""
+	}
+
+	latest := statuses[0]
+	for _, status := range statuses[1:] {
+		if status.ID > latest.ID {
+			latest = status
+		}
+	}
+
+	return latest.Status
+}
+
+// statusHistoryString returns a human-readable status chain ordered by creation.
+func statusHistoryString(statuses []database.PermitRequestStatus) string {
+	if len(statuses) == 0 {
+		return ""
+	}
+
+	sorted := append([]database.PermitRequestStatus(nil), statuses...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].ID < sorted[j].ID
+	})
+
+	parts := make([]string, 0, len(sorted))
+	for _, status := range sorted {
+		parts = append(parts, status.Status)
+	}
+
+	return strings.Join(parts, " -> ")
 }
 
 // RequestPermit allows a regulated entity to submit a new permit request
@@ -106,6 +163,7 @@ func RequestPermit(ctx *gin.Context) {
 	// All fields are required for creating a valid permit request
 	type requestPermitBody struct {
 		ActivityDescription   string        `json:"activity_description" binding:"required"`
+		ActivitySite          string        `json:"activity_site" binding:"required"`
 		ActivityStartDate     time.Time     `json:"activity_start_date" binding:"required"`
 		ActivityDuration      time.Duration `json:"activity_duration" binding:"required"`
 		EnvironmentalPermitID uint          `json:"environmental_permit_id" binding:"required"`
@@ -135,6 +193,7 @@ func RequestPermit(ctx *gin.Context) {
 		RegulatedEntityID:     re.ID,
 		EnvironmentalPermitID: envPermit.ID,
 		ActivityDescription:   payload.ActivityDescription,
+		ActivitySite:          payload.ActivitySite,
 		ActivityStartDate:     payload.ActivityStartDate,
 		ActivityDuration:      payload.ActivityDuration,
 		PermitFee:             envPermit.PermitFee,
@@ -262,70 +321,6 @@ func SubmitPermitPayment(ctx *gin.Context) {
 	})
 }
 
-// AcknowledgePermitDecision allows a regulated entity to acknowledge an EO final decision.
-// It can be called only once and only after the latest status is Accepted or Rejected.
-func AcknowledgePermitDecision(ctx *gin.Context) {
-	// Verify the authenticated user is a regulated entity
-	reAny, _ := ctx.Get(middleware.ContextRegulatedEntityKey)
-	re, ok := reAny.(*database.RegulatedEntities)
-	if !ok || re == nil {
-		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only regulated entities can acknowledge permit decisions"})
-		return
-	}
-
-	// Extract permit request ID from URL
-	requestIDRaw := ctx.Param("request_id")
-	requestID, err := strconv.ParseUint(requestIDRaw, 10, 64)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request id"})
-		return
-	}
-
-	// Retrieve permit request with status information
-	var permitRequest database.PermitRequest
-	if err := database.DB.Preload("Statuses").First(&permitRequest, uint(requestID)).Error; err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid permit request reference"})
-		return
-	}
-
-	// Ensure the permit request belongs to the authenticated regulated entity
-	if permitRequest.RegulatedEntityID != re.ID {
-		ctx.JSON(http.StatusForbidden, gin.H{"error": "Cannot acknowledge another regulated entity decision"})
-		return
-	}
-
-	for _, status := range permitRequest.Statuses {
-		if status.Status == database.PermitRequestStatusAcknowledged {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Decision has already been acknowledged"})
-			return
-		}
-	}
-
-	latestStatus, err := latestPermitRequestStatus(database.DB, permitRequest.ID)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Permit request has no workflow status"})
-		return
-	}
-
-	if latestStatus.Status != database.PermitRequestStatusAccepted && latestStatus.Status != database.PermitRequestStatusRejected {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Decision can only be acknowledged after Accepted or Rejected"})
-		return
-	}
-
-	if err := database.DB.Transaction(func(tx *gorm.DB) error {
-		return appendPermitRequestStatus(tx, permitRequest.ID, database.PermitRequestStatusAcknowledged, "Decision acknowledged by regulated entity")
-	}); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to acknowledge decision", "details": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusCreated, gin.H{
-		"message":           "Decision acknowledged successfully",
-		"permit_request_id": permitRequest.ID,
-		"status":            database.PermitRequestStatusAcknowledged,
-	})
-}
-
 // ReviewPermitPaymentSubmitted allows environmental officers to start reviewing permit requests
 // that have had their payments approved and submitted
 func ReviewPermitPaymentSubmitted(ctx *gin.Context) {
@@ -385,6 +380,123 @@ func ReviewPermitPaymentSubmitted(ctx *gin.Context) {
 		"permit_request_id": permitRequest.ID,
 		"status":            database.PermitRequestStatusBeingReviewed,
 	})
+}
+
+// ListAllPermitRequests returns all permit requests with workflow details.
+// This endpoint is restricted to environmental officers only.
+func ListAllPermitRequests(ctx *gin.Context) {
+	eoAny, _ := ctx.Get(middleware.ContextEnvironmentalOfficerKey)
+	if eo, ok := eoAny.(*database.EnvironmentalOfficer); !ok || eo == nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only environmental officers can list permit requests"})
+		return
+	}
+
+	requests, err := allPermitRequests()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list permit requests", "details": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"items": requests})
+}
+
+// ExportPermitRequestsCSV exports permit request data to CSV for EO review workflows.
+func ExportPermitRequestsCSV(ctx *gin.Context) {
+	eoAny, _ := ctx.Get(middleware.ContextEnvironmentalOfficerKey)
+	if eo, ok := eoAny.(*database.EnvironmentalOfficer); !ok || eo == nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "Only environmental officers can export permit requests"})
+		return
+	}
+
+	requests, err := allPermitRequests()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export permit requests", "details": err.Error()})
+		return
+	}
+
+	buffer := &bytes.Buffer{}
+	writer := csv.NewWriter(buffer)
+
+	if err := writer.Write([]string{
+		"request_id",
+		"regulated_entity_email",
+		"regulated_entity_id",
+		"permit_template_id",
+		"permit_template_name",
+		"activity_description",
+		"activity_site",
+		"permit_fee",
+		"latest_status",
+		"status_history",
+		"final_decision",
+		"final_decision_description",
+		"permit_issued",
+		"payment_approved",
+		"created_at",
+	}); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build CSV header", "details": err.Error()})
+		return
+	}
+
+	for _, request := range requests {
+		reEmail := ""
+		if request.RegulatedEntity != nil {
+			reEmail = request.RegulatedEntity.Email
+		}
+
+		permitName := ""
+		if request.EnvironmentalPermit != nil {
+			permitName = request.EnvironmentalPermit.PermitName
+		}
+
+		decision := ""
+		decisionDescription := ""
+		if request.Decision != nil {
+			decision = request.Decision.Decision
+			decisionDescription = request.Decision.Description
+		}
+
+		permitIssued := "No"
+		if request.Permit != nil {
+			permitIssued = "Yes"
+		}
+
+		paymentApproved := "No"
+		if request.Payment != nil && request.Payment.PaymentApproved {
+			paymentApproved = "Yes"
+		}
+
+		if err := writer.Write([]string{
+			fmt.Sprintf("%d", request.ID),
+			reEmail,
+			fmt.Sprintf("%d", request.RegulatedEntityID),
+			fmt.Sprintf("%d", request.EnvironmentalPermitID),
+			permitName,
+			request.ActivityDescription,
+			request.ActivitySite,
+			fmt.Sprintf("%.2f", request.PermitFee),
+			latestStatusFromStatuses(request.Statuses),
+			statusHistoryString(request.Statuses),
+			decision,
+			decisionDescription,
+			permitIssued,
+			paymentApproved,
+			request.CreatedAt.UTC().Format(time.RFC3339),
+		}); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build CSV rows", "details": err.Error()})
+			return
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize CSV export", "details": err.Error()})
+		return
+	}
+
+	ctx.Header("Content-Disposition", "attachment; filename=permit-applications.csv")
+	ctx.Header("Cache-Control", "no-store")
+	ctx.Data(http.StatusOK, "text/csv; charset=utf-8", buffer.Bytes())
 }
 
 // ReviewPermit allows environmental officers to make final decisions on permit requests

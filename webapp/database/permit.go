@@ -14,7 +14,6 @@ const (
 	PermitRequestStatusRejected         = "Rejected"
 	PermitRequestStatusBeingReviewed    = "Being Reviewed"
 	PermitRequestStatusAccepted         = "Accepted"
-	PermitRequestStatusAcknowledged     = "Acknowledged"
 )
 
 // PermitRequest represents a permit application submitted by a regulated entity
@@ -26,6 +25,7 @@ type PermitRequest struct {
 	EnvironmentalPermitID uint                  `gorm:"not null;index"`
 	EnvironmentalPermit   *EnvironmentalPermits `gorm:"foreignKey:EnvironmentalPermitID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;"`
 	ActivityDescription   string
+	ActivitySite          string
 	ActivityStartDate     time.Time
 	ActivityDuration      time.Duration
 	PermitFee             float64
